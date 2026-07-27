@@ -25,7 +25,7 @@ MDIO controller are VHDL.
 
 ## Build
 
-From the `source` directory:
+From the repository root:
 
 ```sh
 vivado -mode batch -source create_project.tcl
@@ -35,6 +35,13 @@ The resulting programming file is:
 
 ```text
 build/kcu116_ethernet_demo/kcu116_ethernet_demo.runs/impl_1/kcu116_ethernet_demo.bit
+```
+
+After the command-line build completes successfully, the newly created Vivado
+project can be opened in the Vivado GUI. From the repository root, open:
+
+```text
+build/kcu116_ethernet_demo.xpr
 ```
 
 The Tcl script creates a new project and regenerates the PCS/PMA IP. Generated
@@ -186,6 +193,28 @@ strap workaround. Extended register `ANA_LD_DATA_CTRL` at `0x00DD` normally
 reads `0x0200`; `0x000F` indicates that the MDI transmitters are disabled.
 
 ## Troubleshooting
+
+If the system reports that `vivado` cannot be found or is not recognized,
+initialize the Vivado command environment before running the build. Locate the
+appropriate setup script under the Vivado installation directory and run it in
+the same terminal.
+
+On Windows Command Prompt:
+
+```bat
+call C:\path\to\Vivado\2026.1\settings64.bat
+vivado -mode batch -source create_project.tcl
+```
+
+On Linux:
+
+```sh
+source /path/to/Vivado/2026.1/settings64.sh
+vivado -mode batch -source create_project.tcl
+```
+
+The installation path and version may differ. Use the `settings64.bat` or
+`settings64.sh` supplied with the installed Vivado version.
 
 Check the UART status report before changing the PCS/PMA configuration, pin
 constraints, or network software. Open the KCU116 USB-UART port at 9600 baud,
