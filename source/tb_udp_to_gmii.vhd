@@ -99,10 +99,11 @@ begin
         wait until rising_edge(clk) and udp_ready = '1';
         udp_valid   <= '0';
         udp_payload <= REPLACEMENT_PAYLOAD;
-
-        wait until frame_sent = '1';
         wait for 20 ns;
-        stop;
+
+        wait until udp_ready = '1';
+        udp_payload <= TEST_PAYLOAD;
+        udp_valid <= '1';
         wait;
     end process stimulus;
 
@@ -255,6 +256,8 @@ begin
 
                 report "Latched UDP payload-to-GMII frame verified"
                     severity note;
+                -- reset index to prepare the next frame.
+                index := 0;
             end if;
         end if;
     end process monitor;

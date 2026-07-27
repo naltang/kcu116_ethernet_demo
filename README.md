@@ -266,38 +266,67 @@ After taking corrective action, reset or reprogram the board and compare a new
 UART report with the previous one. Change one subsystem at a time; otherwise a
 new PCS, PHY, and host configuration can hide the original fault.
 
-## HDL verification
+## Vivado simulation
 
-GHDL can verify the complete GMII byte stream, including operation when the
-client clock enable is pulsed as it is at 100 Mb/s:
+The project-generation script adds the following files to the Vivado `sim_1`
+fileset as VHDL-2008 simulation-only sources:
 
-```sh
-mkdir -p /tmp/kcu116-ghdl
-ghdl -a --std=08 --workdir=/tmp/kcu116-ghdl \
-  source/udp_to_gmii.vhd source/tb_udp_to_gmii.vhd
-ghdl -e --std=08 --workdir=/tmp/kcu116-ghdl tb_udp_to_gmii
-ghdl -r --std=08 --workdir=/tmp/kcu116-ghdl tb_udp_to_gmii \
-  --assert-level=error
+- `source/tb_udp_to_gmii.vhd`
+- `source/tb_dp83867_sgmii_init.vhd`
+- `source/mdio_slave.vhd`, the PHY model used by the MDIO testbench
+
+These files are available under **Simulation Sources** in the generated Vivado
+project and are excluded from synthesis and implementation. The default
+simulation top is `tb_udp_to_gmii`.
+
+To run the UDP/GMII test in the Vivado GUI:
+
+1. Open `build/kcu116_ethernet_demo.xpr`.
+2. In **Sources**, select **Simulation Sources**.
+3. Right-click `tb_udp_to_gmii` and select **Set as Top**.
+4. Select **Flow Navigator > Simulation > Run Behavioral Simulation**.
+5. In the simulator, select **Run All**. The testbench stops itself after
+   completing its checks.
+
+The Tcl console output should include:
+
+```text
+Latched UDP payload-to-GMII frame verified
 ```
 
-Expected output includes `Latched UDP payload-to-GMII frame verified`.
+This test verifies the complete GMII byte stream, IPv4 and UDP checksums,
+Ethernet FCS, payload latching, and operation with the client clock enable
+pulsed as it is at 100 Mb/s.
 
-The PHY initialization and link-polling test is:
+To run the PHY initialization and link-polling test, close the current
+simulation, set `tb_dp83867_sgmii_init` as the simulation top, and run
+Behavioral Simulation again. Select **Run All** so the simulation can progress
+through the complete MDIO sequence.
 
-```sh
-mkdir -p /tmp/kcu116-mdio
-ghdl -a --std=08 --workdir=/tmp/kcu116-mdio \
-  source/mdio_master.vhd source/mdio_slave.vhd \
-  source/dp83867_sgmii_init.vhd source/tb_dp83867_sgmii_init.vhd
-ghdl -e --std=08 --workdir=/tmp/kcu116-mdio tb_dp83867_sgmii_init
-ghdl -r --std=08 --workdir=/tmp/kcu116-mdio tb_dp83867_sgmii_init \
-  --assert-level=error --stop-time=31ms
+Expected output includes:
+
+```text
+DP83867 configuration sequence verified
+DP83867 double-read link polling verified
+DP83867 PHYSTS register polling verified
+DP83867 PHYCR register polling verified
+DP83867 CFG1 register polling verified
+DP83867 diagnostic-register polling verified
 ```
 
-Expected output includes `DP83867 configuration sequence verified`,
-`DP83867 double-read link polling verified`, and
-`DP83867 PHYSTS register polling verified`, followed by verification of
-the remaining direct and extended diagnostic-register reads.
+The simulation sources can also be selected and launched from the Vivado Tcl
+console:
+
+```tcl
+set_property top tb_udp_to_gmii [get_filesets sim_1]
+launch_simulation -simset sim_1 -mode behavioral
+run all
+close_sim
+
+set_property top tb_dp83867_sgmii_init [get_filesets sim_1]
+launch_simulation -simset sim_1 -mode behavioral
+run all
+```
 
 ## Design notes
 

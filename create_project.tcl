@@ -33,6 +33,15 @@ add_files -norecurse [list \
     [file join $source_dir kcu116_ethernet_demo.vhd]]
 set_property file_type {VHDL 2008} [get_files *.vhd]
 
+set simulation_files [list \
+    [file join $source_dir mdio_slave.vhd] \
+    [file join $source_dir tb_udp_to_gmii.vhd] \
+    [file join $source_dir tb_dp83867_sgmii_init.vhd]]
+add_files -fileset sim_1 -norecurse $simulation_files
+set simulation_sources [get_files -of_objects [get_filesets sim_1]]
+set_property file_type {VHDL 2008} $simulation_sources
+set_property used_in {simulation} $simulation_sources
+
 add_files -fileset constrs_1 -norecurse \
     [file join $script_dir kcu116_ethernet_demo.xdc]
 
@@ -64,7 +73,9 @@ set_property -dict [list \
 
 generate_target all [get_ips gig_ethernet_pcs_pma_0]
 set_property top kcu116_ethernet_demo [get_filesets sources_1]
+set_property top tb_udp_to_gmii [get_filesets sim_1]
 update_compile_order -fileset sources_1
+update_compile_order -fileset sim_1
 
 launch_runs synth_1 -jobs 8
 wait_on_run synth_1
