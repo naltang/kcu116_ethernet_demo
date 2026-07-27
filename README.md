@@ -107,6 +107,14 @@ The transmitted packet has:
 | UDP ports | 1234 to 5678 |
 | Payload | `Hello world! --from KCU116` |
 
+> **Important:** This demonstration is transmit-only and does not implement an
+> ARP or ICMP responder. The board will not answer ARP requests or ping, even
+> when its copper and SGMII links are working correctly. The source address
+> `1.2.3.116` identifies transmitted packets; it does not provide a complete
+> network stack at that address. Do not use ARP or ping to check board status,
+> because those checks will always fail by design. Use the LEDs and/or the UART
+> status report instead.
+
 `udp_to_gmii` provides these VHDL generics; the address and port generics are
 also exposed by `kcu116_ethernet_demo`:
 
@@ -158,17 +166,76 @@ bridge at 9600 baud, 8 data bits, no parity, and one stop bit:
 PCS_STATUS=0xXXXX PHY_STATUS=0xXXXX PHYCR=0xXXXX CFG1=0xXXXX BMCR=0xXXXX BMSR=0xXXXX ANAR=0xXXXX ANLPAR=0xXXXX ANER=0xXXXX STS1=0xXXXX CFG4=0xXXXX STRAP_STS2=0xXXXX ANA_LD_DATA_CTRL=0xXXXX
 ```
 
+A typical report after successful 1-Gb/s Auto-Negotiation is:
+
+```text
+PCS_STATUS=0x388B PHY_STATUS=0xAC02 PHYCR=0x5848 CFG1=0x0300 BMCR=0x1140 BMSR=0x796D ANAR=0x01E1 ANLPAR=0xC1E1 ANER=0x006D STS1=0x7800 CFG4=0x1030 STRAP_STS2=0x0150 ANA_LD_DATA_CTRL=0x0200
+```
+
 `PCS_STATUS` is the 16-bit status vector from the PCS/PMA IP.
 `PHY_STATUS` is the DP83867 Clause-22 `PHYSTS` register at address `0x11`,
-polled over MDIO after the double read of BMSR. For example, `0xBF02` normally
-indicates a 1-Gb/s full-duplex copper link. `PHYCR` is Clause-22 register
-`0x10`; its force-link-good bit 10 should be clear and SGMII-enable bit 11
-should be set. `CFG1` is Clause-22 register `0x09`; a normal automatic
-leader/follower 1000BASE-T advertisement commonly reads `0x0300`.
+polled over MDIO after the double read of BMSR. For example, `0xAC02` is a
+typical value after a 1-Gb/s full-duplex copper link is established. `PHYCR`
+is Clause-22 register `0x10`; its force-link-good bit 10 should be clear and
+SGMII-enable bit 11 should be set. `CFG1` is Clause-22 register `0x09`; a
+normal automatic leader/follower 1000BASE-T advertisement commonly reads
+`0x0300`.
 `BMCR`, `BMSR`, `ANAR`, `ANLPAR`, `ANER`, and `STS1` expose the copper
 Auto-Negotiation progress. `CFG4` and `STRAP_STS2` verify the KCU116 RX_CTRL
 strap workaround. Extended register `ANA_LD_DATA_CTRL` at `0x00DD` normally
 reads `0x0200`; `0x000F` indicates that the MDI transmitters are disabled.
+
+## Troubleshooting
+
+Check the UART status report before changing the PCS/PMA configuration, pin
+constraints, or network software. Open the KCU116 USB-UART port at 9600 baud,
+8-N-1, wait for PHY initialization to finish, and save several complete status
+lines. Stable register values make it possible to distinguish a copper-link
+problem from an SGMII or host-network problem.
+
+For the reference 1-Gb/s setup, the important values are:
+
+| Field | Healthy indication |
+|---|---|
+| `PCS_STATUS` | Typically `0x388B`; bit 0 set and bits 11:10 are `10` |
+| `PHY_STATUS` | Typically `0xAC02` for a 1-Gb/s full-duplex link |
+| `PHYCR` | `0x5848` |
+| `CFG1` | `0x0300` |
+| `BMCR` | Typically `0x1140` after the restart bit from `0x1340` self-clears |
+| `BMSR` | Typically `0x796D`; bit 2 set after the controller's double read |
+| `ANAR` | Typically `0x01E1` |
+| `ANLPAR` | Typically `0xC1E1`, depending on the link partner |
+| `ANER` | Typically `0x006D`, depending on the link partner |
+| `STS1` | Typically `0x7800` |
+| `CFG4` | `0x1030` |
+| `STRAP_STS2` | Typically `0x0150` on the reference board |
+| `ANA_LD_DATA_CTRL` | `0x0200` |
+
+`ANLPAR`, `ANER`, and some status bits depend on the connected link partner, so
+do not reject a link merely because their complete hexadecimal values differ
+from a previous run. Interpret them together with `BMSR`, `PHY_STATUS`, and
+the PCS status.
+
+Use the observed failure pattern to choose the next action:
+
+| UART or LED observation | Likely area | Action |
+|---|---|---|
+| No UART text | Programming, USB-UART, clock, or reset | Confirm that the bitstream is loaded, select the correct serial port, use 9600 8-N-1, and verify that `cpu_reset` is released. |
+| PHY registers remain `0xFFFF` | MDIO is undriven or the PHY is not responding | Check PHY power and reset, PHY address `00011`, MDC, the bidirectional MDIO pin, and its pull-up. Probe MDC/MDIO if LED 6 is on. |
+| PHY registers remain `0x0000` | PHY held in reset, unpowered, or MDIO stuck low | Check `phy1_reset_b`, the power-down pin, PHY supplies, and MDIO for a short to ground. |
+| LED 0 stays off or LED 6 turns on | PHY initialization did not complete | Do not debug UDP yet. Reprogram the FPGA, ensure reset is stable, then verify the MDIO reset, extended-register writes, and software restart sequence. |
+| `PHYCR`, `CFG1`, or `CFG4` differs from the configured value | Configuration was not applied or was overwritten | Check the MDIO transaction sequence and reset history. Confirm `PHYCR=0x5848`, `CFG1=0x0300`, and `CFG4=0x1030` before continuing. |
+| `ANA_LD_DATA_CTRL=0x000F` | Copper MDI transmitters are disabled | Check the PHY strap state and the indirect extended-register access. Confirm that the initialization restart completes and the value returns to `0x0200`. |
+| `BMSR` link bit is clear and `PHY_STATUS` does not show link | Copper Auto-Negotiation or cabling | Try a known-good cable and 1-Gb/s switch port, allow negotiation to restart, and compare `ANAR` with `ANLPAR`. |
+| Copper link is up, but `PCS_STATUS` bit 0 and LED 2 stay low | SGMII-over-LVDS path | Verify the 625-MHz clock, SGMII RX/TX pin assignments, `PHYCR` SGMII enable, PCS reset, and any Vivado bitslice or LOC warnings. |
+| LEDs 0, 1, and 2 are on and LED 3 toggles, but no packet is received | Host capture or network configuration | Capture on the correct interface, verify address `1.2.3.4/24` and UDP port 5678, and check the host firewall. |
+| ARP lookup or ping fails | Expected transmit-only behavior | Do not change PHY or PCS settings based on this result. The design never responds to ARP or ICMP; check board status through the LEDs and/or UART. |
+| LEDs 0, 1, and 2 are on, but LED 3 does not toggle | PCS client clock or transmit control | Check `clk125_out`, `sgmii_clk_en`, client reset, and `PCS_STATUS` speed bits before inspecting the UDP generator. |
+| LED 5 is on | GMII receive error | Check SGMII signal integrity, reference clock, negotiated speed, and PCS/PMA configuration. |
+
+After taking corrective action, reset or reprogram the board and compare a new
+UART report with the previous one. Change one subsystem at a time; otherwise a
+new PCS, PHY, and host configuration can hide the original fault.
 
 ## HDL verification
 
@@ -223,7 +290,9 @@ the remaining direct and extended diagnostic-register reads.
 
 This is deliberately a transmit demonstration rather than a complete
 general-purpose Ethernet MAC. The receive GMII interface is monitored for
-activity and errors but received frames are not parsed or answered.
+activity and errors, but received frames are not parsed or answered. In
+particular, the design has no ARP or ICMP responder and therefore cannot be
+discovered with ARP or tested with ping.
 
 ## References
 
