@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Continuously print UDP datagrams received from the KCU116 example."""
+"""Continuously receive and print UDP datagrams from the KCU116 example."""
 
 import argparse
 import datetime
@@ -15,7 +15,7 @@ MAX_DATAGRAM_BYTES = 65535
 def parse_args():
     parser = argparse.ArgumentParser(
         description=(
-            "Listen for and print UDP packets from the KCU116 Ethernet demo."
+            "Receive and print UDP packets from the KCU116 Ethernet demo."
         )
     )
     parser.add_argument(
@@ -23,7 +23,7 @@ def parse_args():
         default=DEFAULT_BIND_ADDRESS,
         metavar="ADDRESS",
         help=(
-            "local IPv4 address on which to listen "
+            "local IPv4 address on which to receive "
             "(default: all IPv4 interfaces)"
         ),
     )
@@ -47,14 +47,14 @@ def format_hex(data):
 
 def main():
     args = parse_args()
-    listener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    receiver = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     try:
-        listener.bind((args.bind, args.port))
+        receiver.bind((args.bind, args.port))
     except OSError as error:
-        listener.close()
+        receiver.close()
         print(
-            "Unable to listen on {}:{}: {}".format(
+            "Unable to receive on {}:{}: {}".format(
                 args.bind, args.port, error
             ),
             file=sys.stderr,
@@ -62,7 +62,7 @@ def main():
         return 1
 
     print(
-        "Listening for UDP packets on {}:{} (press Ctrl+C to stop)".format(
+        "Receiving UDP packets on {}:{} (press Ctrl+C to stop)".format(
             args.bind, args.port
         ),
         flush=True,
@@ -70,7 +70,7 @@ def main():
 
     try:
         while True:
-            data, sender = listener.recvfrom(MAX_DATAGRAM_BYTES)
+            data, sender = receiver.recvfrom(MAX_DATAGRAM_BYTES)
             timestamp = datetime.datetime.now().astimezone().isoformat(
                 timespec="seconds"
             )
@@ -84,9 +84,9 @@ def main():
             print("  text: {!r}".format(text))
             print("  hex : {}".format(format_hex(data)), flush=True)
     except KeyboardInterrupt:
-        print("\nListener stopped.")
+        print("\nReceiver stopped.")
     finally:
-        listener.close()
+        receiver.close()
 
     return 0
 

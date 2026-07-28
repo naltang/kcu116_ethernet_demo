@@ -24,6 +24,7 @@ architecture sim of tb_dp83867_sgmii_init is
     signal phy_anlpar  : std_logic_vector(15 downto 0);
     signal phy_aner    : std_logic_vector(15 downto 0);
     signal phy_sts1    : std_logic_vector(15 downto 0);
+    signal phy_recr    : std_logic_vector(15 downto 0);
     signal phy_cfg4    : std_logic_vector(15 downto 0);
     signal phy_strap2  : std_logic_vector(15 downto 0);
     signal phy_ana_ld  : std_logic_vector(15 downto 0);
@@ -55,6 +56,7 @@ begin
             phy_anlpar  => phy_anlpar,
             phy_aner    => phy_aner,
             phy_sts1    => phy_sts1,
+            phy_recr    => phy_recr,
             phy_cfg4    => phy_cfg4,
             phy_strap2  => phy_strap2,
             phy_ana_ld  => phy_ana_ld,
@@ -124,6 +126,9 @@ begin
             report "DP83867 ANER register polling timed out" severity failure;
         assert phy_sts1 = x"6000"
             report "DP83867 STS1 register polling timed out" severity failure;
+        assert phy_recr = x"0005"
+            report "DP83867 RECR register polling timed out" severity failure;
+        report "DP83867 RECR register polling verified" severity note;
         assert phy_cfg4 = x"1030"
             report "DP83867 CFG4 indirect polling timed out" severity failure;
         report "DP83867 diagnostic-register polling verified" severity note;

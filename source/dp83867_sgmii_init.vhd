@@ -31,6 +31,7 @@ entity dp83867_sgmii_init is
         phy_anlpar  : out   std_logic_vector(15 downto 0);
         phy_aner    : out   std_logic_vector(15 downto 0);
         phy_sts1    : out   std_logic_vector(15 downto 0);
+        phy_recr    : out   std_logic_vector(15 downto 0);
         phy_cfg4    : out   std_logic_vector(15 downto 0);
         phy_strap2  : out   std_logic_vector(15 downto 0);
         phy_ana_ld  : out   std_logic_vector(15 downto 0);
@@ -57,7 +58,7 @@ architecture rtl of dp83867_sgmii_init is
     type poll_target_t is (
         CAP_NONE, CAP_BMSR, CAP_PHYSTS, CAP_PHYCR, CAP_CFG1,
         CAP_BMCR, CAP_ANAR, CAP_ANLPAR, CAP_ANER, CAP_STS1,
-        CAP_CFG4, CAP_STRAP2, CAP_ANA_LD
+        CAP_RECR, CAP_CFG4, CAP_STRAP2, CAP_ANA_LD
     );
     type poll_command_t is record
         kind   : op_kind_t;
@@ -78,6 +79,7 @@ architecture rtl of dp83867_sgmii_init is
     constant REG_ADDAR  : std_logic_vector(4 downto 0) := "01110";
     constant REG_PHYCR  : std_logic_vector(4 downto 0) := "10000";
     constant REG_PHYSTS : std_logic_vector(4 downto 0) := "10001";
+    constant REG_RECR   : std_logic_vector(4 downto 0) := "10101";
     constant REG_CTRL   : std_logic_vector(4 downto 0) := "11111";
 
     constant INIT_COMMANDS : command_array_t(0 to 22) := (
@@ -128,7 +130,7 @@ architecture rtl of dp83867_sgmii_init is
         (OP_WRITE, REG_BMCR, x"1340")
     );
 
-    constant POLL_COMMANDS : poll_command_array_t(0 to 21) := (
+    constant POLL_COMMANDS : poll_command_array_t(0 to 22) := (
         -- BMSR link status is latched low, so discard the first read.
         (OP_READ,  REG_BMSR,   x"0000", CAP_NONE),
         (OP_READ,  REG_BMSR,   x"0000", CAP_BMSR),
@@ -140,6 +142,7 @@ architecture rtl of dp83867_sgmii_init is
         (OP_READ,  REG_ANLPAR, x"0000", CAP_ANLPAR),
         (OP_READ,  REG_ANER,   x"0000", CAP_ANER),
         (OP_READ,  REG_STS1,   x"0000", CAP_STS1),
+        (OP_READ,  REG_RECR,   x"0000", CAP_RECR),
 
         -- Indirect read of CFG4, extended address 0x0031.
         (OP_WRITE, REG_REGCR,  x"001F", CAP_NONE),
@@ -197,6 +200,7 @@ architecture rtl of dp83867_sgmii_init is
     signal phy_anlpar_i  : std_logic_vector(15 downto 0) := (others => '0');
     signal phy_aner_i    : std_logic_vector(15 downto 0) := (others => '0');
     signal phy_sts1_i    : std_logic_vector(15 downto 0) := (others => '0');
+    signal phy_recr_i    : std_logic_vector(15 downto 0) := (others => '0');
     signal phy_cfg4_i    : std_logic_vector(15 downto 0) := (others => '0');
     signal phy_strap2_i  : std_logic_vector(15 downto 0) := (others => '0');
     signal phy_ana_ld_i  : std_logic_vector(15 downto 0) := (others => '0');
@@ -220,6 +224,7 @@ begin
     phy_anlpar  <= phy_anlpar_i;
     phy_aner    <= phy_aner_i;
     phy_sts1    <= phy_sts1_i;
+    phy_recr    <= phy_recr_i;
     phy_cfg4    <= phy_cfg4_i;
     phy_strap2  <= phy_strap2_i;
     phy_ana_ld  <= phy_ana_ld_i;
@@ -301,6 +306,7 @@ begin
                 phy_anlpar_i   <= (others => '0');
                 phy_aner_i     <= (others => '0');
                 phy_sts1_i     <= (others => '0');
+                phy_recr_i     <= (others => '0');
                 phy_cfg4_i     <= (others => '0');
                 phy_strap2_i   <= (others => '0');
                 phy_ana_ld_i   <= (others => '0');
@@ -428,6 +434,8 @@ begin
                                     phy_aner_i <= read_data;
                                 when CAP_STS1 =>
                                     phy_sts1_i <= read_data;
+                                when CAP_RECR =>
+                                    phy_recr_i <= read_data;
                                 when CAP_CFG4 =>
                                     phy_cfg4_i <= read_data;
                                 when CAP_STRAP2 =>

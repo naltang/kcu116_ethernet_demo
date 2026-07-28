@@ -67,6 +67,7 @@ architecture rtl of mdio_slave is
         10 => x"6000", -- resolved leader/follower and receiver status
         16 => x"5C48", -- SGMII enabled, but force-link-good set
         17 => x"BF02", -- DP83867 PHYSTS: linked at 1 Gb/s, full duplex
+        21 => x"0005", -- DP83867 RECR: model a nonzero receive-error count
         others => x"0000"
     );
 

@@ -46,7 +46,7 @@ entity kcu116_ethernet_demo is
 end entity kcu116_ethernet_demo;
 
 architecture rtl of kcu116_ethernet_demo is
-    constant UART_MESSAGE_BYTES : positive := 190;
+    constant UART_MESSAGE_BYTES : positive := 202;
     constant UDP_PAYLOAD        : std_logic_vector(26 * 8 - 1 downto 0) :=
         x"48656C6C6F20776F726C6421202D2D66726F6D204B4355313136";
     -- "Hello world! --from KCU116"
@@ -128,6 +128,7 @@ architecture rtl of kcu116_ethernet_demo is
         anlpar_value     : std_logic_vector(15 downto 0);
         aner_value       : std_logic_vector(15 downto 0);
         sts1_value       : std_logic_vector(15 downto 0);
+        recr_value       : std_logic_vector(15 downto 0);
         cfg4_value       : std_logic_vector(15 downto 0);
         strap2_value     : std_logic_vector(15 downto 0);
         ana_ld_value     : std_logic_vector(15 downto 0)
@@ -156,6 +157,8 @@ architecture rtl of kcu116_ethernet_demo is
         put_uart_hex_word(result_value, byte_index, aner_value);
         put_uart_text(result_value, byte_index, " STS1=");
         put_uart_hex_word(result_value, byte_index, sts1_value);
+        put_uart_text(result_value, byte_index, " RECR=");
+        put_uart_hex_word(result_value, byte_index, recr_value);
         put_uart_text(result_value, byte_index, " CFG4=");
         put_uart_hex_word(result_value, byte_index, cfg4_value);
         put_uart_text(result_value, byte_index, " STRAP_STS2=");
@@ -265,6 +268,7 @@ architecture rtl of kcu116_ethernet_demo is
     signal phy_anlpar      : std_logic_vector(15 downto 0);
     signal phy_aner        : std_logic_vector(15 downto 0);
     signal phy_sts1        : std_logic_vector(15 downto 0);
+    signal phy_recr        : std_logic_vector(15 downto 0);
     signal phy_cfg4        : std_logic_vector(15 downto 0);
     signal phy_strap2      : std_logic_vector(15 downto 0);
     signal phy_ana_ld      : std_logic_vector(15 downto 0);
@@ -334,6 +338,7 @@ begin
             phy_anlpar  => phy_anlpar,
             phy_aner    => phy_aner,
             phy_sts1    => phy_sts1,
+            phy_recr    => phy_recr,
             phy_cfg4    => phy_cfg4,
             phy_strap2  => phy_strap2,
             phy_ana_ld  => phy_ana_ld,
@@ -372,12 +377,12 @@ begin
 
     -- Each byte is stored low byte first, as required by uart_tx_vector:
     -- "PCS_STATUS=... PHY_STATUS=... PHYCR=... CFG1=... BMCR=... BMSR=..."
-    -- " ANAR=... ANLPAR=... ANER=... STS1=... CFG4=... STRAP_STS2=..."
-    -- " ANA_LD_DATA_CTRL=...\r\n"
+    -- " ANAR=... ANLPAR=... ANER=... STS1=... RECR=... CFG4=..."
+    -- " STRAP_STS2=... ANA_LD_DATA_CTRL=...\r\n"
     uart_vector <= build_uart_message(
         pcs_status_uart, phy_status, phy_control, phy_cfg1, phy_bmcr,
-        phy_bmsr, phy_anar, phy_anlpar, phy_aner, phy_sts1, phy_cfg4,
-        phy_strap2, phy_ana_ld);
+        phy_bmsr, phy_anar, phy_anlpar, phy_aner, phy_sts1, phy_recr,
+        phy_cfg4, phy_strap2, phy_ana_ld);
 
     -- Hold the PCS in reset until MDIO has enabled the PHY's differential
     -- 625-MHz SGMII clock.

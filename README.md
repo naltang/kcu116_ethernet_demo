@@ -53,29 +53,29 @@ IP files are intentionally not stored here.
 2. Program the generated bitstream.
 3. Assign the receiving host an address in `1.2.3.0/24`, for example
    `1.2.3.4`. Subnet mask should be `255.255.255.0`. No gateway is required.
-4. Start the console UDP listener.
+4. Start the console UDP receiver.
 
    On Windows:
 
    ```powershell
-   py listen_udp.py
+   py recv_udp.py
    ```
 
    If the Python launcher is not installed, use
-   `python listen_udp.py`.
+   `python recv_udp.py`.
 
    On Linux:
 
    ```sh
-   python3 listen_udp.py
+   python3 recv_udp.py
    ```
 
-   The listener uses only the Python standard library, binds all IPv4
+   The receiver uses only the Python standard library, binds all IPv4
    interfaces on UDP port 5678, and runs until Ctrl+C is pressed. Each packet
    is printed as text and hexadecimal bytes:
 
    ```text
-   Listening for UDP packets on 0.0.0.0:5678 (press Ctrl+C to stop)
+   Receiving UDP packets on 0.0.0.0:5678 (press Ctrl+C to stop)
    [2026-07-25T12:34:56+09:00] 1.2.3.116:1234 - 26 bytes
      text: 'Hello world! --from KCU116'
      hex : 48 65 6C 6C 6F 20 77 6F 72 6C 64 21 20 2D 2D 66 72 6F 6D 20 4B 43 55 31 31 36
@@ -84,7 +84,7 @@ IP files are intentionally not stored here.
    Use `--bind ADDRESS` or `--port PORT` to override the defaults:
 
    ```sh
-   python3 listen_udp.py --bind 1.2.3.4 --port 5678
+   python3 recv_udp.py --bind 1.2.3.4 --port 5678
    ```
 
    On Windows, allow Python to receive traffic on the private network if
@@ -170,13 +170,13 @@ The FPGA continuously sends a textual status line through the KCU116 USB-UART
 bridge at 9600 baud, 8 data bits, no parity, and one stop bit:
 
 ```text
-PCS_STATUS=0xXXXX PHY_STATUS=0xXXXX PHYCR=0xXXXX CFG1=0xXXXX BMCR=0xXXXX BMSR=0xXXXX ANAR=0xXXXX ANLPAR=0xXXXX ANER=0xXXXX STS1=0xXXXX CFG4=0xXXXX STRAP_STS2=0xXXXX ANA_LD_DATA_CTRL=0xXXXX
+PCS_STATUS=0xXXXX PHY_STATUS=0xXXXX PHYCR=0xXXXX CFG1=0xXXXX BMCR=0xXXXX BMSR=0xXXXX ANAR=0xXXXX ANLPAR=0xXXXX ANER=0xXXXX STS1=0xXXXX RECR=0xXXXX CFG4=0xXXXX STRAP_STS2=0xXXXX ANA_LD_DATA_CTRL=0xXXXX
 ```
 
 A typical report after successful 1-Gb/s Auto-Negotiation is:
 
 ```text
-PCS_STATUS=0x388B PHY_STATUS=0xAC02 PHYCR=0x5848 CFG1=0x0300 BMCR=0x1140 BMSR=0x796D ANAR=0x01E1 ANLPAR=0xC1E1 ANER=0x006D STS1=0x7800 CFG4=0x1030 STRAP_STS2=0x0150 ANA_LD_DATA_CTRL=0x0200
+PCS_STATUS=0x388B PHY_STATUS=0xAC02 PHYCR=0x5848 CFG1=0x0300 BMCR=0x1140 BMSR=0x796D ANAR=0x01E1 ANLPAR=0xC1E1 ANER=0x006D STS1=0x7800 RECR=0x0000 CFG4=0x1030 STRAP_STS2=0x0150 ANA_LD_DATA_CTRL=0x0200
 ```
 
 `PCS_STATUS` is the 16-bit status vector from the PCS/PMA IP.
@@ -188,9 +188,12 @@ SGMII-enable bit 11 should be set. `CFG1` is Clause-22 register `0x09`; a
 normal automatic leader/follower 1000BASE-T advertisement commonly reads
 `0x0300`.
 `BMCR`, `BMSR`, `ANAR`, `ANLPAR`, `ANER`, and `STS1` expose the copper
-Auto-Negotiation progress. `CFG4` and `STRAP_STS2` verify the KCU116 RX_CTRL
-strap workaround. Extended register `ANA_LD_DATA_CTRL` at `0x00DD` normally
-reads `0x0200`; `0x000F` indicates that the MDI transmitters are disabled.
+Auto-Negotiation progress. `RECR` is the Clause-22 receiver error counter at
+address `0x15`; it saturates at `0xFFFF`, and an MDIO write clears it. The
+normal polling read does not clear the counter. `CFG4` and `STRAP_STS2` verify
+the KCU116 RX_CTRL strap workaround. Extended register `ANA_LD_DATA_CTRL` at
+`0x00DD` normally reads `0x0200`; `0x000F` indicates that the MDI transmitters
+are disabled.
 
 ## Troubleshooting
 
@@ -236,6 +239,7 @@ For the reference 1-Gb/s setup, the important values are:
 | `ANLPAR` | Typically `0xC1E1`, depending on the link partner |
 | `ANER` | Typically `0x006D`, depending on the link partner |
 | `STS1` | Typically `0x7800` |
+| `RECR` | Normally `0x0000`; a rising value indicates receive errors detected by the PHY |
 | `CFG4` | `0x1030` |
 | `STRAP_STS2` | Typically `0x0150` on the reference board |
 | `ANA_LD_DATA_CTRL` | `0x0200` |
@@ -260,7 +264,8 @@ Use the observed failure pattern to choose the next action:
 | LEDs 0, 1, and 2 are on and LED 3 toggles, but no packet is received | Host capture or network configuration | Capture on the correct interface, verify address `1.2.3.4/24` and UDP port 5678, and check the host firewall. |
 | ARP lookup or ping fails | Expected transmit-only behavior | Do not change PHY or PCS settings based on this result. The design never responds to ARP or ICMP; check board status through the LEDs and/or UART. |
 | LEDs 0, 1, and 2 are on, but LED 3 does not toggle | PCS client clock or transmit control | Check `clk125_out`, `sgmii_clk_en`, client reset, and `PCS_STATUS` speed bits before inspecting the UDP generator. |
-| LED 5 is on | GMII receive error | Check SGMII signal integrity, reference clock, negotiated speed, and PCS/PMA configuration. |
+| LED 5 is on and `RECR` increases | Copper-side receive errors | Try a known-good cable and switch port, then compare `RECR` before and after controlled traffic. |
+| LED 5 is on but `RECR` remains unchanged | SGMII/PCS error or an earlier sticky event | Reset or reprogram to clear LED 5, then probe `gmii_rx_er`, `gmii_rx_dv`, and `PCS_STATUS[6:4]`; check SGMII signal integrity and the 625-MHz reference clock if the error repeats. |
 
 After taking corrective action, reset or reprogram the board and compare a new
 UART report with the previous one. Change one subsystem at a time; otherwise a
@@ -311,6 +316,7 @@ DP83867 double-read link polling verified
 DP83867 PHYSTS register polling verified
 DP83867 PHYCR register polling verified
 DP83867 CFG1 register polling verified
+DP83867 RECR register polling verified
 DP83867 diagnostic-register polling verified
 ```
 
