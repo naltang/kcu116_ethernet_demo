@@ -91,6 +91,21 @@ IP files are intentionally not stored here.
    Windows Firewall prompts. On Linux, ensure the local firewall allows
    incoming UDP port 5678.
 
+   `send_udp.py` can send a test broadcast to the receiver:
+
+   ```sh
+   python3 send_udp.py "interface test" --destination 1.2.3.4 --port 5678
+   ```
+
+   Here, `--destination` identifies the target subnet; the packet is sent to
+   that subnet's directed broadcast address. The sender finds the local IPv4
+   adapter whose subnet contains the supplied address, binds that adapter,
+   enables UDP broadcast, and sends to the calculated broadcast address. This
+   produces an Ethernet destination of `ff:ff:ff:ff:ff:ff`. If several
+   adapters match, it chooses the one with the longest subnet prefix. It
+   reports an error instead of using the default adapter when no subnet
+   matches.
+
 5. Alternatively, capture UDP destination port 5678:
 
    ```sh
@@ -162,7 +177,8 @@ generated automatically.
 | 7 | Negotiated SGMII speed is 1 Gb/s |
 
 LEDs 0, 1, 2, and 7 should be on for a normal 1-Gb/s link. LED 3 changes state
-once per second.
+once per second. LED 5 does not treat the normal `RX_DV=0`, `RX_ER=1`,
+`RXD=0x0F` carrier-extension indication as an error.
 
 ## UART status report
 
@@ -265,7 +281,7 @@ Use the observed failure pattern to choose the next action:
 | ARP lookup or ping fails | Expected transmit-only behavior | Do not change PHY or PCS settings based on this result. The design never responds to ARP or ICMP; check board status through the LEDs and/or UART. |
 | LEDs 0, 1, and 2 are on, but LED 3 does not toggle | PCS client clock or transmit control | Check `clk125_out`, `sgmii_clk_en`, client reset, and `PCS_STATUS` speed bits before inspecting the UDP generator. |
 | LED 5 is on and `RECR` increases | Copper-side receive errors | Try a known-good cable and switch port, then compare `RECR` before and after controlled traffic. |
-| LED 5 is on but `RECR` remains unchanged | SGMII/PCS error or an earlier sticky event | Reset or reprogram to clear LED 5, then probe `gmii_rx_er`, `gmii_rx_dv`, and `PCS_STATUS[6:4]`; check SGMII signal integrity and the 625-MHz reference clock if the error repeats. |
+| LED 5 is on but `RECR` remains unchanged | SGMII/PCS receive error | Reset or reprogram to clear LED 5, then probe `gmii_rx_er`, `gmii_rx_dv`, `gmii_rxd`, and `PCS_STATUS[6:4]`. Normal carrier extension (`RX_DV=0`, `RX_ER=1`, `RXD=0x0F`) is filtered; check SGMII signal integrity and the 625-MHz reference clock if another error pattern repeats. |
 
 After taking corrective action, reset or reprogram the board and compare a new
 UART report with the previous one. Change one subsystem at a time; otherwise a
@@ -347,6 +363,8 @@ run all
   oscillator.
 - `status_vector(11 downto 10)` controls PCS rate adaptation.
 - `sgmii_clk_en` advances the GMII transmitter at the negotiated byte rate.
+- The sticky GMII receive-error latch excludes the normal carrier-extension
+  indication (`RX_DV=0`, `RX_ER=1`, `RXD=0x0F`).
 - `signal_detect` is tied high because the on-board LVDS connection has no
   separate loss-of-signal input.
 - `status_vector(0)` gates frame transmission until SGMII auto-negotiation is

@@ -293,15 +293,17 @@ architecture rtl of kcu116_ethernet_demo is
     signal gmii_rx_dv : std_logic;
     signal gmii_rx_er : std_logic;
 
-    signal udp_valid    : std_logic := '0';
-    signal udp_ready    : std_logic;
-    signal frame_sent   : std_logic;
-    signal second_count : natural range 0 to ONE_SECOND_CYCLES - 1 := 0;
-    signal tx_activity   : std_logic := '0';
-    signal rx_activity   : std_logic := '0';
-    signal rx_dv_delayed : std_logic := '0';
-    signal rx_error_seen : std_logic := '0';
-    signal uart_vector    : std_logic_vector(
+    signal udp_valid            : std_logic := '0';
+    signal udp_ready            : std_logic;
+    signal frame_sent           : std_logic;
+    signal second_count         : natural range 0 to ONE_SECOND_CYCLES - 1 := 0;
+    signal tx_activity          : std_logic := '0';
+    signal rx_activity          : std_logic := '0';
+    signal rx_dv_delayed        : std_logic := '0';
+    signal rx_carrier_extension : std_logic;
+    signal rx_error_seen        : std_logic := '0';
+    signal rx_error_trigger     : std_logic;
+    signal uart_vector          : std_logic_vector(
         UART_MESSAGE_BYTES * 8 - 1 downto 0) := (others => '0');
 begin
     -- The active-low PDWN pin is shared with the PHY interrupt function.
@@ -389,6 +391,13 @@ begin
     pcs_reset    <= cpu_reset or not phy_config_done;
     pcs_link_up  <= pcs_status(0);
     client_reset <= pcs_rst125 or not pcs_link_up;
+
+    -- RX_ER with RX_DV low and RXD=0x0F is the normal 1000BASE-X carrier
+    -- extension indication, not a receive error.
+    rx_carrier_extension <= '1' when gmii_rx_er = '1' and
+                                     gmii_rx_dv = '0' and
+                                     gmii_rxd = x"0F" else '0';
+    rx_error_trigger <= gmii_rx_er and not rx_carrier_extension;
 
     -- status[11:10] is the negotiated SGMII speed:
     -- 10=1G, 01=100M, 00=10M.
@@ -525,10 +534,10 @@ begin
     begin
         if rising_edge(pcs_clk125) then
             if client_reset = '1' then
-                tx_activity   <= '0';
-                rx_activity   <= '0';
-                rx_dv_delayed <= '0';
-                rx_error_seen <= '0';
+                tx_activity    <= '0';
+                rx_activity    <= '0';
+                rx_dv_delayed  <= '0';
+                rx_error_seen  <= '0';
             else
                 if frame_sent = '1' then
                     tx_activity <= not tx_activity;
@@ -540,7 +549,8 @@ begin
                 if pcs_clk_enable = '1' then
                     rx_dv_delayed <= gmii_rx_dv;
                 end if;
-                if gmii_rx_er = '1' then
+
+                if rx_error_trigger = '1' then
                     rx_error_seen <= '1';
                 end if;
             end if;
