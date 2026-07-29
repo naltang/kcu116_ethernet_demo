@@ -24,7 +24,7 @@ end entity uart_status_report;
 architecture rtl of uart_status_report is
     constant CLKS_PER_BIT : positive := CLOCK_FREQ_HZ / BAUD_RATE;
     constant PAUSE_CYCLES : positive := CLKS_PER_BIT * PAUSE_BIT_TIMES;
-    constant WORD_COUNT   : positive := 17;
+    constant WORD_COUNT   : positive := 21;
     constant LAST_SEGMENT : natural := WORD_COUNT * 2;
 
     type report_state_t is (PAUSE, SEND);
@@ -68,10 +68,14 @@ architecture rtl of uart_status_report is
             when 22 => return padded_text(" ANER=0x");
             when 24 => return padded_text(" STS1=0x");
             when 26 => return padded_text(" RECR=0x");
-            when 28 => return padded_text(" CFG4=0x");
-            when 30 => return padded_text(" STRAP_STS2=0x");
-            when 32 => return padded_text(" ANA_LD_DATA_CTRL=0x");
-            when 34 => return padded_text(CR & LF);
+            when 28 => return padded_text(" MSE(A=0x");
+            when 30 => return padded_text(" B=0x");
+            when 32 => return padded_text(" C=0x");
+            when 34 => return padded_text(" D=0x");
+            when 36 => return padded_text(") CFG4=0x");
+            when 38 => return padded_text(" STRAP_STS2=0x");
+            when 40 => return padded_text(" ANA_LD_DATA_CTRL=0x");
+            when 42 => return padded_text(CR & LF);
             when others => return (others => ' ');
         end case;
     end function;
@@ -96,9 +100,13 @@ architecture rtl of uart_status_report is
             when 11 => return status_value.phy.aner;
             when 12 => return status_value.phy.sts1;
             when 13 => return status_value.phy.recr;
-            when 14 => return status_value.phy.cfg4;
-            when 15 => return status_value.phy.strap_sts2;
-            when 16 => return status_value.phy.ana_ld_data_ctrl;
+            when 14 => return status_value.phy.mse_a;
+            when 15 => return status_value.phy.mse_b;
+            when 16 => return status_value.phy.mse_c;
+            when 17 => return status_value.phy.mse_d;
+            when 18 => return status_value.phy.cfg4;
+            when 19 => return status_value.phy.strap_sts2;
+            when 20 => return status_value.phy.ana_ld_data_ctrl;
             when others => return x"0000";
         end case;
     end function;
@@ -158,11 +166,13 @@ architecture rtl of uart_status_report is
             when 10            => return 9;
             when 12 | 14 | 16 |
                  18 | 22 | 24 |
-                 26 | 28       => return 8;
+                 26            => return 8;
             when 20            => return 10;
-            when 30            => return 14;
-            when 32            => return 20;
-            when 34            => return 2;
+            when 28 | 36       => return 9;
+            when 30 | 32 | 34  => return 5;
+            when 38            => return 14;
+            when 40            => return 20;
+            when 42            => return 2;
             when others        => return 1;
         end case;
     end function;

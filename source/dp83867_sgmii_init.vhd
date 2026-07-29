@@ -37,7 +37,8 @@ architecture rtl of dp83867_sgmii_init is
     type capture_target_t is (
         CAP_NONE, CAP_BMSR, CAP_PHYSTS, CAP_PHYCR, CAP_CFG1,
         CAP_BMCR, CAP_ANAR, CAP_ANLPAR, CAP_ANER, CAP_STS1,
-        CAP_RECR, CAP_CFG4, CAP_STRAP2, CAP_ANA_LD
+        CAP_RECR, CAP_MSE_A, CAP_MSE_B, CAP_MSE_C, CAP_MSE_D,
+        CAP_CFG4, CAP_STRAP2, CAP_ANA_LD
     );
     type command_kind_t is (COMMAND_WRITE, COMMAND_READ);
     type command_t is record
@@ -136,7 +137,7 @@ architecture rtl of dp83867_sgmii_init is
         write_command(DP83867_REG_BMCR, x"1340")
     );
 
-    constant POLL_COMMANDS : command_array_t(0 to 22) := (
+    constant POLL_COMMANDS : command_array_t(0 to 38) := (
         -- BMSR link status is latched low, so discard the first read.
         read_command(DP83867_REG_BMSR),
         read_command(DP83867_REG_BMSR, CAP_BMSR),
@@ -149,6 +150,27 @@ architecture rtl of dp83867_sgmii_init is
         read_command(DP83867_REG_ANER, CAP_ANER),
         read_command(DP83867_REG_STS1, CAP_STS1),
         read_command(DP83867_REG_RECR, CAP_RECR),
+
+        -- Indirect reads of the four copper-channel link-quality values.
+        write_command(DP83867_REG_REGCR, x"001F"),
+        extended_address_command(DP83867_EXT_MSE_A),
+        write_command(DP83867_REG_REGCR, x"401F"),
+        extended_data_read(CAP_MSE_A),
+
+        write_command(DP83867_REG_REGCR, x"001F"),
+        extended_address_command(DP83867_EXT_MSE_B),
+        write_command(DP83867_REG_REGCR, x"401F"),
+        extended_data_read(CAP_MSE_B),
+
+        write_command(DP83867_REG_REGCR, x"001F"),
+        extended_address_command(DP83867_EXT_MSE_C),
+        write_command(DP83867_REG_REGCR, x"401F"),
+        extended_data_read(CAP_MSE_C),
+
+        write_command(DP83867_REG_REGCR, x"001F"),
+        extended_address_command(DP83867_EXT_MSE_D),
+        write_command(DP83867_REG_REGCR, x"401F"),
+        extended_data_read(CAP_MSE_D),
 
         -- Indirect read of CFG4, extended address 0x0031.
         write_command(DP83867_REG_REGCR, x"001F"),
@@ -179,7 +201,7 @@ architecture rtl of dp83867_sgmii_init is
 
     signal delay_count   : natural range 0 to POST_RESET_CYCLES - 1 := 0;
     signal poll_count    : natural range 0 to POLL_CYCLES - 1 := 0;
-    signal command_index : natural range INIT_COMMANDS'range :=
+    signal command_index : natural range 0 to POLL_COMMANDS'high :=
         INIT_COMMANDS'low;
     signal current_command : command_t := INIT_COMMANDS(INIT_COMMANDS'low);
 
@@ -198,6 +220,9 @@ architecture rtl of dp83867_sgmii_init is
     signal config_done_i : std_logic := '0';
     signal link_up_i     : std_logic := '0';
     signal diagnostics_i : phy_diagnostics_t := PHY_DIAGNOSTICS_RESET;
+    signal mse_a_pending : mdio_word_t := (others => '0');
+    signal mse_b_pending : mdio_word_t := (others => '0');
+    signal mse_c_pending : mdio_word_t := (others => '0');
     signal sticky_error  : std_logic := '0';
 begin
     assert CLK_FREQ_HZ >= 1_000_000
@@ -291,6 +316,9 @@ begin
                 config_done_i  <= '0';
                 link_up_i      <= '0';
                 diagnostics_i  <= PHY_DIAGNOSTICS_RESET;
+                mse_a_pending  <= (others => '0');
+                mse_b_pending  <= (others => '0');
+                mse_c_pending  <= (others => '0');
                 sticky_error   <= '0';
             else
                 case state is
@@ -364,6 +392,19 @@ begin
                                         diagnostics_i.sts1 <= read_data;
                                     when CAP_RECR =>
                                         diagnostics_i.recr <= read_data;
+                                    when CAP_MSE_A =>
+                                        mse_a_pending <= read_data;
+                                    when CAP_MSE_B =>
+                                        mse_b_pending <= read_data;
+                                    when CAP_MSE_C =>
+                                        mse_c_pending <= read_data;
+                                    when CAP_MSE_D =>
+                                        -- Publish the quartet together so a
+                                        -- UART snapshot cannot mix cycles.
+                                        diagnostics_i.mse_a <= mse_a_pending;
+                                        diagnostics_i.mse_b <= mse_b_pending;
+                                        diagnostics_i.mse_c <= mse_c_pending;
+                                        diagnostics_i.mse_d <= read_data;
                                     when CAP_CFG4 =>
                                         diagnostics_i.cfg4 <= read_data;
                                     when CAP_STRAP2 =>

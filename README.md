@@ -271,13 +271,13 @@ The FPGA continuously transmits a textual status line through the selected
 board's USB-UART bridge at 9600 baud, 8 data bits, no parity, and one stop bit:
 
 ```text
-FRAME(S=0xXXXX R=0xXXXX E=0xXXXX) PCS_STATUS=0xXXXX PHYSTS=0xXXXX PHYCR=0xXXXX CFG1=0xXXXX BMCR=0xXXXX BMSR=0xXXXX ANAR=0xXXXX ANLPAR=0xXXXX ANER=0xXXXX STS1=0xXXXX RECR=0xXXXX CFG4=0xXXXX STRAP_STS2=0xXXXX ANA_LD_DATA_CTRL=0xXXXX
+FRAME(S=0xXXXX R=0xXXXX E=0xXXXX) PCS_STATUS=0xXXXX PHYSTS=0xXXXX PHYCR=0xXXXX CFG1=0xXXXX BMCR=0xXXXX BMSR=0xXXXX ANAR=0xXXXX ANLPAR=0xXXXX ANER=0xXXXX STS1=0xXXXX RECR=0xXXXX MSE(A=0xXXXX B=0xXXXX C=0xXXXX D=0xXXXX) CFG4=0xXXXX STRAP_STS2=0xXXXX ANA_LD_DATA_CTRL=0xXXXX
 ```
 
-A typical report after successful 1-Gb/s auto-negotiation is:
+An illustrative report after successful 1-Gb/s auto-negotiation is:
 
 ```text
-FRAME(S=0x000C R=0x0003 E=0x0000) PCS_STATUS=0x388B PHYSTS=0xAC02 PHYCR=0x5848 CFG1=0x0300 BMCR=0x1140 BMSR=0x796D ANAR=0x01E1 ANLPAR=0xC1E1 ANER=0x006D STS1=0x7800 RECR=0x0000 CFG4=0x1030 STRAP_STS2=0x0150 ANA_LD_DATA_CTRL=0x0200
+FRAME(S=0x000C R=0x0003 E=0x0000) PCS_STATUS=0x388B PHYSTS=0xAC02 PHYCR=0x5848 CFG1=0x0300 BMCR=0x1140 BMSR=0x796D ANAR=0x01E1 ANLPAR=0xC1E1 ANER=0x006D STS1=0x7800 RECR=0x0000 MSE(A=0x0123 B=0x0145 C=0x0167 D=0x0189) CFG4=0x1030 STRAP_STS2=0x0150 ANA_LD_DATA_CTRL=0x0200
 ```
 
 ### Frame counters
@@ -338,6 +338,7 @@ This table is the canonical reference for the remaining UART fields:
 | `ANER` | Auto-negotiation expansion | Commonly `0x006D`; depends on the link partner |
 | `STS1` | DP83867 status register 1 | Typically `0x7800` |
 | `RECR` | DP83867 Clause-22 receiver error counter at `0x15` | Normally `0x0000` |
+| `MSE(A/B/C/D)` | DP83867 extended mean-square-error registers `0x0225`, `0x0265`, `0x02A5`, and `0x02E5` | At 1 Gb/s, values below `0x020A` indicate excellent link quality |
 | `CFG4` | DP83867 configuration register 4 | `0x1030` |
 | `STRAP_STS2` | DP83867 strap status register 2 | Board strap status; `0x0150` is typical on the KCU116 |
 | `ANA_LD_DATA_CTRL` | DP83867 extended register `0x00DD` | `0x0200`; `0x000F` indicates disabled MDI transmitters |
@@ -345,6 +346,17 @@ This table is the canonical reference for the remaining UART fields:
 `PHYSTS` is polled after the double read of `BMSR`. Partner-dependent fields
 such as `ANLPAR`, `ANER`, and some status bits need not exactly match the
 example. Interpret them together with `BMSR`, `PHYSTS`, and `PCS_STATUS`.
+
+The four `MSE` values measure copper-channel link quality; lower is better.
+TI classifies a value less than 522 (less than `0x020A`) as excellent, 522
+through 827 (`0x020A` through `0x033B`) as good, and greater than 827 (greater
+than `0x033B`) as poor. The values depend on the cable, board layout, noise,
+and link partner, so the example values above are not expected constants.
+All four channels are applicable at 1 Gb/s. At 100 Mb/s only channel A is
+applicable, and at 10 Mb/s none of the four values is applicable. Interpret
+the values only while the copper link is up. The reported quartet is updated
+together after channel D is read, so one UART line cannot combine MSE values
+from two polling cycles.
 
 `RECR` saturates at `0xFFFF`; an MDIO write clears it, while normal polling
 does not. The `FRAME` group's `E` counter and `RECR` measure errors at different
@@ -445,6 +457,7 @@ DP83867 PHYSTS register polling verified
 DP83867 PHYCR register polling verified
 DP83867 CFG1 register polling verified
 DP83867 RECR register polling verified
+DP83867 MSE register polling verified
 DP83867 diagnostic-register polling verified
 ```
 
@@ -469,7 +482,7 @@ DP83867 diagnostic-register polling verified
 - The multi-bit PCS status uses a request/acknowledge snapshot handshake so one
   UART line cannot contain a mixture of two PCS status updates.
 - The UART formatter snapshots all fields once per line and streams individual
-  bytes to the transmitter instead of latching a 232-byte vector.
+  bytes to the transmitter instead of latching a 273-byte vector.
 - The UDP transmitter stores one accepted payload snapshot and addresses it by
   byte or word index for checksum and serialization.
 - The generated PCS/PMA core is isolated behind `pcs_pma_wrapper`, keeping its
@@ -492,5 +505,7 @@ DP83867 diagnostic-register polling verified
 - AMD RDF0400, *VCU118 Master XDC* (in the XTP450 board archive):
   <https://docs.amd.com/v/u/en-US/VCU118-Schematics-XTP450>
 - TI DP83867 datasheet:
-  <https://www.ti.com/lit/ds/symlink/dp83867e.pdf>
+  <https://www.ti.com/lit/ds/symlink/dp83867cr.pdf>
+- TI SNLA246, *DP83867 Troubleshooting Guide*:
+  <https://www.ti.com/lit/an/snla246/snla246.pdf>
 - AMD Answer Record 69494, KCU116/VCU118 DP83867 SGMII bring-up

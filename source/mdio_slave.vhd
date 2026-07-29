@@ -8,7 +8,7 @@ entity mdio_slave is
     generic (
         PHY_ADDR              : std_logic_vector(4 downto 0) := "00011";
         SELF_CLEAR_CYCLES     : positive := 10_000;
-        EXTENDED_ADDRESS_BITS : positive range 1 to 16 := 8;
+        EXTENDED_ADDRESS_BITS : positive range 1 to 16 := 10;
         VERBOSE               : boolean := false
     );
     port (
@@ -56,6 +56,18 @@ architecture sim of mdio_slave is
         result(to_integer(unsigned(
             DP83867_EXT_ANA_LD_DATA_CTRL(
                 EXTENDED_ADDRESS_BITS - 1 downto 0)))) := x"0200";
+        result(to_integer(unsigned(
+            DP83867_EXT_MSE_A(
+                EXTENDED_ADDRESS_BITS - 1 downto 0)))) := x"0123";
+        result(to_integer(unsigned(
+            DP83867_EXT_MSE_B(
+                EXTENDED_ADDRESS_BITS - 1 downto 0)))) := x"0145";
+        result(to_integer(unsigned(
+            DP83867_EXT_MSE_C(
+                EXTENDED_ADDRESS_BITS - 1 downto 0)))) := x"0167";
+        result(to_integer(unsigned(
+            DP83867_EXT_MSE_D(
+                EXTENDED_ADDRESS_BITS - 1 downto 0)))) := x"0189";
         return result;
     end function build_default_extended_registers;
 
@@ -82,8 +94,8 @@ architecture sim of mdio_slave is
             address_value(EXTENDED_ADDRESS_BITS - 1 downto 0)));
     end function;
 begin
-    assert EXTENDED_ADDRESS_BITS >= 8
-        report "The DP83867 model requires at least eight address bits"
+    assert EXTENDED_ADDRESS_BITS >= 10
+        report "The DP83867 model requires at least ten address bits"
         severity failure;
 
     bfm : entity work.mdio_slave_bfm

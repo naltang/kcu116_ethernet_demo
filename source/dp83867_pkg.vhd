@@ -28,6 +28,10 @@ package dp83867_pkg is
     constant DP83867_EXT_STRAP_STS2       : mdio_word_t := x"006F";
     constant DP83867_EXT_SGMIICTL1        : mdio_word_t := x"00D3";
     constant DP83867_EXT_ANA_LD_DATA_CTRL : mdio_word_t := x"00DD";
+    constant DP83867_EXT_MSE_A            : mdio_word_t := x"0225";
+    constant DP83867_EXT_MSE_B            : mdio_word_t := x"0265";
+    constant DP83867_EXT_MSE_C            : mdio_word_t := x"02A5";
+    constant DP83867_EXT_MSE_D            : mdio_word_t := x"02E5";
 
     type phy_diagnostics_t is record
         physts           : mdio_word_t;
@@ -40,6 +44,10 @@ package dp83867_pkg is
         aner             : mdio_word_t;
         sts1             : mdio_word_t;
         recr             : mdio_word_t;
+        mse_a            : mdio_word_t;
+        mse_b            : mdio_word_t;
+        mse_c            : mdio_word_t;
+        mse_d            : mdio_word_t;
         cfg4             : mdio_word_t;
         strap_sts2       : mdio_word_t;
         ana_ld_data_ctrl : mdio_word_t;
@@ -56,6 +64,10 @@ package dp83867_pkg is
         aner             => (others => '0'),
         sts1             => (others => '0'),
         recr             => (others => '0'),
+        mse_a            => (others => '0'),
+        mse_b            => (others => '0'),
+        mse_c            => (others => '0'),
+        mse_d            => (others => '0'),
         cfg4             => (others => '0'),
         strap_sts2       => (others => '0'),
         ana_ld_data_ctrl => (others => '0')

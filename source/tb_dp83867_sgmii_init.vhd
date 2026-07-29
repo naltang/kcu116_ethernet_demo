@@ -97,6 +97,19 @@ begin
         assert diagnostics.recr = x"0005"
             report "DP83867 RECR register polling timed out" severity failure;
         report "DP83867 RECR register polling verified" severity note;
+        assert diagnostics.mse_a = x"0123"
+            report "DP83867 MSE_A indirect polling timed out"
+            severity failure;
+        assert diagnostics.mse_b = x"0145"
+            report "DP83867 MSE_B indirect polling timed out"
+            severity failure;
+        assert diagnostics.mse_c = x"0167"
+            report "DP83867 MSE_C indirect polling timed out"
+            severity failure;
+        assert diagnostics.mse_d = x"0189"
+            report "DP83867 MSE_D indirect polling timed out"
+            severity failure;
+        report "DP83867 MSE register polling verified" severity note;
         assert diagnostics.cfg4 = x"1030"
             report "DP83867 CFG4 indirect polling timed out" severity failure;
         report "DP83867 diagnostic-register polling verified" severity note;
