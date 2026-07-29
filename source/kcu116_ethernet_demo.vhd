@@ -46,7 +46,11 @@ entity kcu116_ethernet_demo is
 end entity kcu116_ethernet_demo;
 
 architecture rtl of kcu116_ethernet_demo is
-    constant UART_MESSAGE_BYTES : positive := 202;
+    constant UART_BASE_MESSAGE_BYTES : positive := 198;
+    constant UART_FRAME_STATISTICS_BYTES : positive := 34;
+    -- Each 16-bit value is formatted as "0x" followed by four hex digits.
+    constant UART_MESSAGE_BYTES : positive :=
+        UART_BASE_MESSAGE_BYTES + UART_FRAME_STATISTICS_BYTES;
     constant UDP_PAYLOAD        : std_logic_vector(26 * 8 - 1 downto 0) :=
         x"48656C6C6F20776F726C6421202D2D66726F6D204B4355313136";
     -- "Hello world! --from KCU116"
@@ -78,6 +82,22 @@ architecture rtl of kcu116_ethernet_demo is
             when "1111" => return x"46";
             when others => return x"3F"; -- '?' for an unknown simulation value
         end case;
+    end function;
+
+    function binary_to_gray(value : unsigned) return std_logic_vector is
+    begin
+        return std_logic_vector(value xor shift_right(value, 1));
+    end function;
+
+    function gray_to_binary(value : std_logic_vector) return unsigned is
+        variable result : unsigned(value'range);
+    begin
+        result(result'high) := value(value'high);
+        for bit_index in result'high - 1 downto result'low loop
+            result(bit_index) :=
+                result(bit_index + 1) xor value(bit_index);
+        end loop;
+        return result;
     end function;
 
     procedure put_uart_char (
@@ -118,6 +138,9 @@ architecture rtl of kcu116_ethernet_demo is
     end procedure;
 
     function build_uart_message (
+        frame_sent_count_value : std_logic_vector(15 downto 0);
+        recv_count_value       : std_logic_vector(15 downto 0);
+        recv_error_count_value : std_logic_vector(15 downto 0);
         pcs_status_value : std_logic_vector(15 downto 0);
         phy_status_value : std_logic_vector(15 downto 0);
         phycr_value      : std_logic_vector(15 downto 0);
@@ -137,9 +160,15 @@ architecture rtl of kcu116_ethernet_demo is
             UART_MESSAGE_BYTES * 8 - 1 downto 0) := (others => '0');
         variable byte_index   : natural := 0;
     begin
-        put_uart_text(result_value, byte_index, "PCS_STATUS=");
+        put_uart_text(result_value, byte_index, "FRAME(S=");
+        put_uart_hex_word(result_value, byte_index, frame_sent_count_value);
+        put_uart_text(result_value, byte_index, " R=");
+        put_uart_hex_word(result_value, byte_index, recv_count_value);
+        put_uart_text(result_value, byte_index, " E=");
+        put_uart_hex_word(result_value, byte_index, recv_error_count_value);
+        put_uart_text(result_value, byte_index, ") PCS_STATUS=");
         put_uart_hex_word(result_value, byte_index, pcs_status_value);
-        put_uart_text(result_value, byte_index, " PHY_STATUS=");
+        put_uart_text(result_value, byte_index, " PHYSTS=");
         put_uart_hex_word(result_value, byte_index, phy_status_value);
         put_uart_text(result_value, byte_index, " PHYCR=");
         put_uart_hex_word(result_value, byte_index, phycr_value);
@@ -303,8 +332,39 @@ architecture rtl of kcu116_ethernet_demo is
     signal rx_carrier_extension : std_logic;
     signal rx_error_seen        : std_logic := '0';
     signal rx_error_trigger     : std_logic;
+
+    signal frame_sent_count_pcs : unsigned(15 downto 0);
+    signal recv_count_pcs       : unsigned(15 downto 0);
+    signal recv_error_count_pcs : unsigned(15 downto 0);
+    signal frame_sent_count_gray : std_logic_vector(15 downto 0);
+    signal recv_count_gray       : std_logic_vector(15 downto 0);
+    signal recv_error_count_gray : std_logic_vector(15 downto 0);
+    signal frame_sent_count_meta : std_logic_vector(15 downto 0) :=
+        (others => '0');
+    signal recv_count_meta : std_logic_vector(15 downto 0) :=
+        (others => '0');
+    signal recv_error_count_meta : std_logic_vector(15 downto 0) :=
+        (others => '0');
+    signal frame_sent_count_sync : std_logic_vector(15 downto 0) :=
+        (others => '0');
+    signal recv_count_sync : std_logic_vector(15 downto 0) :=
+        (others => '0');
+    signal recv_error_count_sync : std_logic_vector(15 downto 0) :=
+        (others => '0');
+    signal frame_sent_count_uart : unsigned(15 downto 0);
+    signal recv_count_uart       : unsigned(15 downto 0);
+    signal recv_error_count_uart : unsigned(15 downto 0);
+
     signal uart_vector          : std_logic_vector(
         UART_MESSAGE_BYTES * 8 - 1 downto 0) := (others => '0');
+
+    attribute ASYNC_REG : string;
+    attribute ASYNC_REG of frame_sent_count_meta : signal is "TRUE";
+    attribute ASYNC_REG of recv_count_meta : signal is "TRUE";
+    attribute ASYNC_REG of recv_error_count_meta : signal is "TRUE";
+    attribute ASYNC_REG of frame_sent_count_sync : signal is "TRUE";
+    attribute ASYNC_REG of recv_count_sync : signal is "TRUE";
+    attribute ASYNC_REG of recv_error_count_sync : signal is "TRUE";
 begin
     -- The active-low PDWN pin is shared with the PHY interrupt function.
     -- Driving it high releases power-down; this example does not use INT.
@@ -363,6 +423,38 @@ begin
         end if;
     end process pcs_status_synchronizer;
 
+    -- Gray coding permits each free-running 16-bit counter to cross from the
+    -- PCS client clock to the independent board/UART clock without sampling a
+    -- mixture of old and new binary counter bits.
+    frame_sent_count_gray <= binary_to_gray(frame_sent_count_pcs);
+    recv_count_gray       <= binary_to_gray(recv_count_pcs);
+    recv_error_count_gray <= binary_to_gray(recv_error_count_pcs);
+
+    statistics_synchronizer : process(board_clk125)
+    begin
+        if rising_edge(board_clk125) then
+            if cpu_reset = '1' then
+                frame_sent_count_meta <= (others => '0');
+                recv_count_meta       <= (others => '0');
+                recv_error_count_meta <= (others => '0');
+                frame_sent_count_sync <= (others => '0');
+                recv_count_sync       <= (others => '0');
+                recv_error_count_sync <= (others => '0');
+            else
+                frame_sent_count_meta <= frame_sent_count_gray;
+                recv_count_meta       <= recv_count_gray;
+                recv_error_count_meta <= recv_error_count_gray;
+                frame_sent_count_sync <= frame_sent_count_meta;
+                recv_count_sync       <= recv_count_meta;
+                recv_error_count_sync <= recv_error_count_meta;
+            end if;
+        end if;
+    end process statistics_synchronizer;
+
+    frame_sent_count_uart <= gray_to_binary(frame_sent_count_sync);
+    recv_count_uart       <= gray_to_binary(recv_count_sync);
+    recv_error_count_uart <= gray_to_binary(recv_error_count_sync);
+
     uart_debug_i : entity work.uart_tx_vector
         generic map (
             CLOCK_SPEED_IN_MHZ    => 125,
@@ -378,10 +470,14 @@ begin
         );
 
     -- Each byte is stored low byte first, as required by uart_tx_vector:
-    -- "PCS_STATUS=... PHY_STATUS=... PHYCR=... CFG1=... BMCR=... BMSR=..."
-    -- " ANAR=... ANLPAR=... ANER=... STS1=... RECR=... CFG4=..."
-    -- " STRAP_STS2=... ANA_LD_DATA_CTRL=...\r\n"
+    -- "FRAME(S=... R=... E=...)"
+    -- " PCS_STATUS=... PHYSTS=... PHYCR=... CFG1=... BMCR=..."
+    -- " BMSR=... ANAR=... ANLPAR=... ANER=... STS1=... RECR=..."
+    -- " CFG4=... STRAP_STS2=... ANA_LD_DATA_CTRL=...\r\n"
     uart_vector <= build_uart_message(
+        std_logic_vector(frame_sent_count_uart),
+        std_logic_vector(recv_count_uart),
+        std_logic_vector(recv_error_count_uart),
         pcs_status_uart, phy_status, phy_control, phy_cfg1, phy_bmcr,
         phy_bmsr, phy_anar, phy_anlpar, phy_aner, phy_sts1, phy_recr,
         phy_cfg4, phy_strap2, phy_ana_ld);
@@ -505,6 +601,20 @@ begin
             gmii_tx_en   => gmii_tx_en,
             gmii_txd     => gmii_txd,
             gmii_tx_er   => gmii_tx_er
+        );
+
+    statistics_i : entity work.ethernet_statistics
+        port map (
+            clk              => pcs_clk125,
+            rst              => cpu_reset,
+            active           => not client_reset,
+            clk_enable       => pcs_clk_enable,
+            frame_sent       => frame_sent,
+            rx_dv            => gmii_rx_dv,
+            rx_error         => rx_error_trigger,
+            frame_sent_count => frame_sent_count_pcs,
+            recv_count       => recv_count_pcs,
+            recv_error_count => recv_error_count_pcs
         );
 
     -- Transmit one frame per second after SGMII synchronization and

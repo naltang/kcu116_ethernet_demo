@@ -1,29 +1,62 @@
 # KCU116 VHDL Ethernet demonstration
 
-This example sends a valid UDP broadcast once per second through the KCU116
-on-board DP83867 PHY. It does not use the AXI Ethernet Subsystem or a processor.
-The only Ethernet IP is AMD's licensed **1G/2.5G Ethernet PCS/PMA or SGMII**
-core, configured as:
+This FPGA-only demonstration transmits one valid UDP broadcast per second
+through the KCU116 on-board DP83867 PHY. It also monitors received Ethernet
+frames, but it does not implement receive protocol processing.
 
-- SGMII, MAC mode
+> **Important:** The design does not contain an ARP, ICMP, or UDP responder.
+> The board therefore does not answer ARP requests or ping, even when both the
+> copper and SGMII links are healthy. The source address `1.2.3.116` identifies
+> transmitted IPv4 datagrams; it is not a complete network stack. Use the LEDs,
+> UART status report, or packet capture to check the board.
+
+The design does not use the AXI Ethernet Subsystem or a processor. Its only
+Ethernet IP is AMD's licensed **1G/2.5G Ethernet PCS/PMA or SGMII** core,
+configured for:
+
+- SGMII MAC mode
 - synchronous SGMII over LVDS
-- 625-MHz differential reference clock
-- 10/100/1000 capability with auto-negotiation
+- a 625-MHz differential reference clock
+- 10/100/1000 operation with auto-negotiation
 - shared logic included in the core
-- client interface selected for TEMAC-style rate adaptation
+- TEMAC-style client rate adaptation
 
-The small transmit MAC, UDP frame, periodic trigger, PHY initialization, and
-MDIO controller are VHDL.
+The transmit MAC, UDP frame generator, periodic trigger, PHY initialization,
+MDIO controller, receive statistics, and UART formatter are VHDL.
 
 ## Requirements
 
 - KCU116 evaluation board
-- Vivado with the `gig_ethernet_pcs_pma` IP available and licensed (usually free)
-- A 1-Gb/s-capable Ethernet switch or directly connected host
-- Vivado 2026.1 is the configuration used as the reference. The script uses
-  the installed version of the IP rather than hard-coding an IP version.
+- Vivado with the `gig_ethernet_pcs_pma` IP installed and licensed for
+  synthesis
+- A 1-Gb/s-capable Ethernet switch or a directly connected host
+- Python 3 for the optional host utilities
+
+Vivado 2026.1 is the reference configuration. The project script uses the
+installed PCS/PMA IP version rather than hard-coding a version number.
 
 ## Build
+
+### Configure the Vivado environment
+
+If `vivado` is not already available on the command line, initialize the
+environment using the setup script supplied with the installed version.
+
+On Windows Command Prompt:
+
+```bat
+call C:\path\to\Vivado\2026.1\settings64.bat
+```
+
+On Linux:
+
+```sh
+source /path/to/Vivado/2026.1/settings64.sh
+```
+
+The installation path and version may differ.
+
+### Generate the project and bitstream
 
 From the repository root:
 
@@ -34,111 +67,140 @@ vivado -mode batch -source create_project.tcl
 The resulting programming file is:
 
 ```text
-build/kcu116_ethernet_demo/kcu116_ethernet_demo.runs/impl_1/kcu116_ethernet_demo.bit
+build/kcu116_ethernet_demo.runs/impl_1/kcu116_ethernet_demo.bit
 ```
 
-After the command-line build completes successfully, the newly created Vivado
-project can be opened in the Vivado GUI. From the repository root, open:
+The generated Vivado project can be opened at:
 
 ```text
 build/kcu116_ethernet_demo.xpr
 ```
 
-The Tcl script creates a new project and regenerates the PCS/PMA IP. Generated
-IP files are intentionally not stored here.
+`create_project.tcl` recreates the project and regenerates the PCS/PMA IP.
+Generated project and IP files are intentionally not stored in the repository.
 
-## Run
+## Quick start
 
-1. Connect the KCU116 RJ45 port to a host or switch.
+1. Connect the KCU116 RJ45 port to a host or a 1-Gb/s-capable switch.
 2. Program the generated bitstream.
-3. Assign the receiving host an address in `1.2.3.0/24`, for example
-   `1.2.3.4`. Subnet mask should be `255.255.255.0`. No gateway is required.
-4. Start the console UDP receiver.
-
-   On Windows:
-
-   ```powershell
-   py recv_udp.py
-   ```
-
-   If the Python launcher is not installed, use
-   `python recv_udp.py`.
-
-   On Linux:
+3. Assign the receiving host an address in `1.2.3.0/24`, such as `1.2.3.4`,
+   with subnet mask `255.255.255.0`. No gateway is required.
+4. Start the UDP receiver:
 
    ```sh
    python3 recv_udp.py
    ```
 
-   The receiver uses only the Python standard library, binds all IPv4
-   interfaces on UDP port 5678, and runs until Ctrl+C is pressed. Each packet
-   is printed as text and hexadecimal bytes:
+   On Windows, `py recv_udp.py` can be used instead.
+5. Confirm that LEDs 0, 1, 2, and 7 are on. LED 3 should change state once per
+   second.
+6. Wait for the transmitted payload to appear:
 
    ```text
-   Receiving UDP packets on 0.0.0.0:5678 (press Ctrl+C to stop)
    [2026-07-25T12:34:56+09:00] 1.2.3.116:1234 - 26 bytes
      text: 'Hello world! --from KCU116'
      hex : 48 65 6C 6C 6F 20 77 6F 72 6C 64 21 20 2D 2D 66 72 6F 6D 20 4B 43 55 31 31 36
    ```
 
-   Use `--bind ADDRESS` or `--port PORT` to override the defaults:
+If no datagram appears, check the [troubleshooting](#troubleshooting) section
+before modifying the PCS/PMA configuration.
 
-   ```sh
-   python3 recv_udp.py --bind 1.2.3.4 --port 5678
-   ```
+## Host utilities
 
-   On Windows, allow Python to receive traffic on the private network if
-   Windows Firewall prompts. On Linux, ensure the local firewall allows
-   incoming UDP port 5678.
+Both utilities use only the Python standard library.
 
-   `send_udp.py` can send a test broadcast to the receiver:
+### Receive board traffic
 
-   ```sh
-   python3 send_udp.py "interface test" --destination 1.2.3.4 --port 5678
-   ```
+`recv_udp.py` listens continuously on UDP port 5678 and prints each datagram as
+text and hexadecimal bytes.
 
-   Here, `--destination` identifies the target subnet; the packet is sent to
-   that subnet's directed broadcast address. The sender finds the local IPv4
-   adapter whose subnet contains the supplied address, binds that adapter,
-   enables UDP broadcast, and sends to the calculated broadcast address. This
-   produces an Ethernet destination of `ff:ff:ff:ff:ff:ff`. If several
-   adapters match, it chooses the one with the longest subnet prefix. It
-   reports an error instead of using the default adapter when no subnet
-   matches.
+On Windows:
 
-5. Alternatively, capture UDP destination port 5678:
+```powershell
+py recv_udp.py
+```
 
-   ```sh
-   sudo tcpdump -ni any 'udp port 5678' -XX
-   ```
+If the Python launcher is unavailable:
 
-   Wireshark filter:
+```powershell
+python recv_udp.py
+```
 
-   ```text
-   udp.dstport == 5678
-   ```
+On Linux:
 
-The transmitted packet has:
+```sh
+python3 recv_udp.py
+```
 
-| Field | Value |
+The default bind address is `0.0.0.0`, so all local IPv4 interfaces are
+monitored. Override the bind address or port when required:
+
+```sh
+python3 recv_udp.py --bind 1.2.3.4 --port 5678
+```
+
+On Windows, allow Python to receive traffic on the private network if Windows
+Firewall prompts. On Linux, ensure that the local firewall allows incoming UDP
+port 5678.
+
+### Generate test traffic
+
+`send_udp.py` generates directed-broadcast UDP traffic. To send ten test
+datagrams to a `recv_udp.py` instance using its default port:
+
+```sh
+python3 send_udp.py "interface test" --destination 1.2.3.4 --port 5678 --count 10
+```
+
+To exercise the FPGA receive counter instead, the UDP port is unimportant
+because the FPGA counts Ethernet frames without parsing their contents:
+
+```sh
+python3 send_udp.py "counter test" --destination 1.2.3.116 --port 1234 --count 100
+```
+
+`--destination` is a subnet selector, not the transmitted destination address.
+The script finds the local IPv4 interface whose subnet contains the supplied
+address, binds to that interface, and sends to the subnet's directed-broadcast
+address. The resulting Ethernet destination is `ff:ff:ff:ff:ff:ff`.
+
+If several interfaces match, the one with the longest subnet prefix is used.
+The script reports an error rather than silently using a default interface
+when no subnet matches. `--count COUNT` defaults to one and sends the requested
+datagrams back-to-back through the same socket without an intentional
+inter-datagram delay. UDP does not guarantee that every sent datagram will be
+delivered.
+
+### Capture traffic
+
+To capture UDP destination port 5678 on Linux:
+
+```sh
+sudo tcpdump -ni any 'udp port 5678' -XX
+```
+
+Equivalent Wireshark display filter:
+
+```text
+udp.dstport == 5678
+```
+
+## Default frame and VHDL configuration
+
+The top-level demonstration transmits:
+
+| Field | Default value |
 |---|---|
 | Destination MAC | `ff:ff:ff:ff:ff:ff` |
 | Source MAC | `02:00:00:00:00:01` |
 | Source IPv4 | `1.2.3.116` |
 | Destination IPv4 | `1.2.3.4` |
-| UDP ports | 1234 to 5678 |
+| UDP source port | `1234` |
+| UDP destination port | `5678` |
 | Payload | `Hello world! --from KCU116` |
 
-> **Important:** This demonstration is transmit-only and does not implement an
-> ARP or ICMP responder. The board will not answer ARP requests or ping, even
-> when its copper and SGMII links are working correctly. The source address
-> `1.2.3.116` identifies transmitted packets; it does not provide a complete
-> network stack at that address. Do not use ARP or ping to check board status,
-> because those checks will always fail by design. Use the LEDs and/or the UART
-> status report instead.
-
-`udp_to_gmii` provides these VHDL generics; the address and port generics are
-also exposed by `kcu116_ethernet_demo`:
+`udp_to_gmii` provides the following generics. The address and port generics
+are also exposed by `kcu116_ethernet_demo`.
 
 | Generic | Default |
 |---|---|
@@ -150,181 +212,205 @@ also exposed by `kcu116_ethernet_demo`:
 | `SOURCE_UDP_PORT` | `1234` |
 | `DESTINATION_UDP_PORT` | `5678` |
 
-The `UDP_PAYLOAD_BYTE_COUNT` generic sets the width of `udp_payload` to eight
-times that many bits. The maximum UDP payload is 1472 bytes so the 20-byte IPv4
-header, 8-byte UDP header, and payload fit the standard 1500-byte Ethernet MTU.
+`UDP_PAYLOAD_BYTE_COUNT` sets the width of `udp_payload` to eight times the
+specified number of bytes. Its maximum is 1472 so the 20-byte IPv4 header,
+8-byte UDP header, and payload fit the standard 1500-byte Ethernet MTU.
+
 The leftmost payload byte is sent first. `udp_valid` and `udp_ready` implement
 a standard valid-ready handshake: the producer holds `udp_valid` and
-`udp_payload` stable until a rising clock edge where `udp_ready` is high. The
-transmitter latches the payload on that edge, after which the producer may
-change both inputs. The demo top level connects the
-`Hello world! --from KCU116` payload shown above.
+`udp_payload` stable until a rising clock edge on which `udp_ready` is high.
+The transmitter latches the payload on that edge, after which the producer may
+change both inputs. The demonstration top level connects the default payload
+shown above.
 
-IPv4/UDP lengths, checksums, minimum Ethernet padding, and the Ethernet FCS are
-generated automatically.
+IPv4 and UDP lengths, IPv4 and UDP checksums, minimum Ethernet padding, and the
+Ethernet FCS are generated automatically.
 
-## LEDs
+## LED status
 
 | LED | Meaning |
 |---|---|
 | 0 | DP83867 register configuration completed |
 | 1 | DP83867 copper-side link up |
 | 2 | PCS SGMII synchronization and auto-negotiation complete |
-| 3 | Toggles after each transmitted UDP frame |
+| 3 | Toggles after each transmitted Ethernet frame |
 | 4 | Toggles at the start of each received GMII frame |
 | 5 | Sticky GMII receive error |
 | 6 | PHY initialization error |
 | 7 | Negotiated SGMII speed is 1 Gb/s |
 
-LEDs 0, 1, 2, and 7 should be on for a normal 1-Gb/s link. LED 3 changes state
-once per second. LED 5 does not treat the normal `RX_DV=0`, `RX_ER=1`,
-`RXD=0x0F` carrier-extension indication as an error.
+For a normal 1-Gb/s link, LEDs 0, 1, 2, and 7 should be on. LED 3 changes state
+once per second. LED 5 excludes the normal `RX_DV=0`, `RX_ER=1`, `RXD=0x0F`
+carrier-extension indication.
 
-## UART status report
+## UART status
 
-The FPGA continuously sends a textual status line through the KCU116 USB-UART
-bridge at 9600 baud, 8 data bits, no parity, and one stop bit:
-
-```text
-PCS_STATUS=0xXXXX PHY_STATUS=0xXXXX PHYCR=0xXXXX CFG1=0xXXXX BMCR=0xXXXX BMSR=0xXXXX ANAR=0xXXXX ANLPAR=0xXXXX ANER=0xXXXX STS1=0xXXXX RECR=0xXXXX CFG4=0xXXXX STRAP_STS2=0xXXXX ANA_LD_DATA_CTRL=0xXXXX
-```
-
-A typical report after successful 1-Gb/s Auto-Negotiation is:
+The FPGA continuously transmits a textual status line through the KCU116
+USB-UART bridge at 9600 baud, 8 data bits, no parity, and one stop bit:
 
 ```text
-PCS_STATUS=0x388B PHY_STATUS=0xAC02 PHYCR=0x5848 CFG1=0x0300 BMCR=0x1140 BMSR=0x796D ANAR=0x01E1 ANLPAR=0xC1E1 ANER=0x006D STS1=0x7800 RECR=0x0000 CFG4=0x1030 STRAP_STS2=0x0150 ANA_LD_DATA_CTRL=0x0200
+FRAME(S=0xXXXX R=0xXXXX E=0xXXXX) PCS_STATUS=0xXXXX PHYSTS=0xXXXX PHYCR=0xXXXX CFG1=0xXXXX BMCR=0xXXXX BMSR=0xXXXX ANAR=0xXXXX ANLPAR=0xXXXX ANER=0xXXXX STS1=0xXXXX RECR=0xXXXX CFG4=0xXXXX STRAP_STS2=0xXXXX ANA_LD_DATA_CTRL=0xXXXX
 ```
 
-`PCS_STATUS` is the 16-bit status vector from the PCS/PMA IP.
-`PHY_STATUS` is the DP83867 Clause-22 `PHYSTS` register at address `0x11`,
-polled over MDIO after the double read of BMSR. For example, `0xAC02` is a
-typical value after a 1-Gb/s full-duplex copper link is established. `PHYCR`
-is Clause-22 register `0x10`; its force-link-good bit 10 should be clear and
-SGMII-enable bit 11 should be set. `CFG1` is Clause-22 register `0x09`; a
-normal automatic leader/follower 1000BASE-T advertisement commonly reads
-`0x0300`.
-`BMCR`, `BMSR`, `ANAR`, `ANLPAR`, `ANER`, and `STS1` expose the copper
-Auto-Negotiation progress. `RECR` is the Clause-22 receiver error counter at
-address `0x15`; it saturates at `0xFFFF`, and an MDIO write clears it. The
-normal polling read does not clear the counter. `CFG4` and `STRAP_STS2` verify
-the KCU116 RX_CTRL strap workaround. Extended register `ANA_LD_DATA_CTRL` at
-`0x00DD` normally reads `0x0200`; `0x000F` indicates that the MDI transmitters
-are disabled.
+A typical report after successful 1-Gb/s auto-negotiation is:
+
+```text
+FRAME(S=0x000C R=0x0003 E=0x0000) PCS_STATUS=0x388B PHYSTS=0xAC02 PHYCR=0x5848 CFG1=0x0300 BMCR=0x1140 BMSR=0x796D ANAR=0x01E1 ANLPAR=0xC1E1 ANER=0x006D STS1=0x7800 RECR=0x0000 CFG4=0x1030 STRAP_STS2=0x0150 ANA_LD_DATA_CTRL=0x0200
+```
+
+### Frame counters
+
+The `FRAME` group contains three 16-bit unsigned counters. They are printed as
+fixed-width hexadecimal values, cleared by `cpu_reset`, and wrap from `0xFFFF`
+to `0x0000`.
+
+| Field | Meaning |
+|---|---|
+| `S` | Increments after a complete transmitted frame |
+| `R` | Increments after a complete, error-free GMII `RX_DV` interval |
+| `E` | Increments once for a receive interval containing `RX_ER`, or for a standalone non-carrier receive-error event |
+
+`R` deliberately does not calculate or compare the received Ethernet FCS.
+`E` excludes the normal `RX_DV=0`, `RX_ER=1`, `RXD=0x0F` carrier-extension
+indication.
+
+#### Relating `send_udp.py --count` to `R`
+
+Each small datagram generated by `send_udp.py` normally produces one Ethernet
+frame counted by `R`. For example:
+
+```sh
+python3 send_udp.py "test" --destination 1.2.3.116 --count 100
+```
+
+Normally, the modulo-16-bit increase should be at least 100:
+
+```text
+R increase = (R_after - R_before) mod 65536
+```
+
+The increase need not equal 100 because `R` counts every complete, error-free
+Ethernet frame seen on GMII, not only traffic generated by `send_udp.py`.
+Background ARP, DHCP, IPv6, multicast, and discovery traffic can increase `R`
+automatically. A large UDP datagram can be fragmented into multiple Ethernet
+frames.
+
+Conversely, UDP provides no delivery guarantee. Host, switch, or link drops
+can make the increase less than 100, and receive events reported with `RX_ER`
+increment `E` instead of `R`.
+
+### PCS and PHY fields
+
+This table is the canonical reference for the remaining UART fields:
+
+| Field | Source and meaning | Healthy reference indication |
+|---|---|---|
+| `PCS_STATUS` | 16-bit PCS/PMA status vector | Typically `0x388B`; bit 0 set and bits 11:10 equal `10` |
+| `PHYSTS` | DP83867 Clause-22 register `0x11` | Typically `0xAC02` for a 1-Gb/s full-duplex link |
+| `PHYCR` | Clause-22 register `0x10`; includes SGMII enable and force-link-good controls | `0x5848`; bit 11 set and force-link-good bit 10 clear |
+| `CFG1` | Clause-22 register `0x09`; 1000BASE-T advertisement | `0x0300` |
+| `BMCR` | Basic mode control register | Typically `0x1140` after restart bit 9 from `0x1340` self-clears |
+| `BMSR` | Basic mode status register, read twice to expose current link state | Typically `0x796D`; link-status bit 2 set |
+| `ANAR` | Auto-negotiation advertisement | Typically `0x01E1` |
+| `ANLPAR` | Link-partner auto-negotiation ability | Commonly `0xC1E1`; depends on the link partner |
+| `ANER` | Auto-negotiation expansion | Commonly `0x006D`; depends on the link partner |
+| `STS1` | DP83867 status register 1 | Typically `0x7800` |
+| `RECR` | DP83867 Clause-22 receiver error counter at `0x15` | Normally `0x0000` |
+| `CFG4` | DP83867 configuration register 4 | `0x1030` |
+| `STRAP_STS2` | DP83867 strap status register 2 | Typically `0x0150` on the KCU116 |
+| `ANA_LD_DATA_CTRL` | DP83867 extended register `0x00DD` | `0x0200`; `0x000F` indicates disabled MDI transmitters |
+
+`PHYSTS` is polled after the double read of `BMSR`. Partner-dependent fields
+such as `ANLPAR`, `ANER`, and some status bits need not exactly match the
+example. Interpret them together with `BMSR`, `PHYSTS`, and `PCS_STATUS`.
+
+`RECR` saturates at `0xFFFF`; an MDIO write clears it, while normal polling
+does not. The `FRAME` group's `E` counter and `RECR` measure errors at different
+points and are not expected to match exactly. `E` observes the FPGA GMII
+interface after the SGMII/PCS path and wraps at `0xFFFF`. `RECR` records
+receive errors detected by the DP83867 on its copper side and saturates at
+`0xFFFF`. An SGMII/PCS-path error can therefore increment `E` without changing
+`RECR`.
 
 ## Troubleshooting
 
-If the system reports that `vivado` cannot be found or is not recognized,
-initialize the Vivado command environment before running the build. Locate the
-appropriate setup script under the Vivado installation directory and run it in
-the same terminal.
+Before changing the PCS/PMA configuration, constraints, or host software:
 
-On Windows Command Prompt:
+1. Open the KCU116 USB-UART port at 9600 baud, 8-N-1.
+2. Wait for PHY initialization to finish.
+3. Save several complete UART status lines.
+4. Compare the observed LEDs and fields with the table below.
 
-```bat
-call C:\path\to\Vivado\2026.1\settings64.bat
-vivado -mode batch -source create_project.tcl
-```
-
-On Linux:
-
-```sh
-source /path/to/Vivado/2026.1/settings64.sh
-vivado -mode batch -source create_project.tcl
-```
-
-The installation path and version may differ. Use the `settings64.bat` or
-`settings64.sh` supplied with the installed Vivado version.
-
-Check the UART status report before changing the PCS/PMA configuration, pin
-constraints, or network software. Open the KCU116 USB-UART port at 9600 baud,
-8-N-1, wait for PHY initialization to finish, and save several complete status
-lines. Stable register values make it possible to distinguish a copper-link
-problem from an SGMII or host-network problem.
-
-For the reference 1-Gb/s setup, the important values are:
-
-| Field | Healthy indication |
-|---|---|
-| `PCS_STATUS` | Typically `0x388B`; bit 0 set and bits 11:10 are `10` |
-| `PHY_STATUS` | Typically `0xAC02` for a 1-Gb/s full-duplex link |
-| `PHYCR` | `0x5848` |
-| `CFG1` | `0x0300` |
-| `BMCR` | Typically `0x1140` after the restart bit from `0x1340` self-clears |
-| `BMSR` | Typically `0x796D`; bit 2 set after the controller's double read |
-| `ANAR` | Typically `0x01E1` |
-| `ANLPAR` | Typically `0xC1E1`, depending on the link partner |
-| `ANER` | Typically `0x006D`, depending on the link partner |
-| `STS1` | Typically `0x7800` |
-| `RECR` | Normally `0x0000`; a rising value indicates receive errors detected by the PHY |
-| `CFG4` | `0x1030` |
-| `STRAP_STS2` | Typically `0x0150` on the reference board |
-| `ANA_LD_DATA_CTRL` | `0x0200` |
-
-`ANLPAR`, `ANER`, and some status bits depend on the connected link partner, so
-do not reject a link merely because their complete hexadecimal values differ
-from a previous run. Interpret them together with `BMSR`, `PHY_STATUS`, and
-the PCS status.
-
-Use the observed failure pattern to choose the next action:
+Stable register values help distinguish copper-link, SGMII, and host-network
+problems.
 
 | UART or LED observation | Likely area | Action |
 |---|---|---|
 | No UART text | Programming, USB-UART, clock, or reset | Confirm that the bitstream is loaded, select the correct serial port, use 9600 8-N-1, and verify that `cpu_reset` is released. |
-| PHY registers remain `0xFFFF` | MDIO is undriven or the PHY is not responding | Check PHY power and reset, PHY address `00011`, MDC, the bidirectional MDIO pin, and its pull-up. Probe MDC/MDIO if LED 6 is on. |
-| PHY registers remain `0x0000` | PHY held in reset, unpowered, or MDIO stuck low | Check `phy1_reset_b`, the power-down pin, PHY supplies, and MDIO for a short to ground. |
-| LED 0 stays off or LED 6 turns on | PHY initialization did not complete | Do not debug UDP yet. Reprogram the FPGA, ensure reset is stable, then verify the MDIO reset, extended-register writes, and software restart sequence. |
-| `PHYCR`, `CFG1`, or `CFG4` differs from the configured value | Configuration was not applied or was overwritten | Check the MDIO transaction sequence and reset history. Confirm `PHYCR=0x5848`, `CFG1=0x0300`, and `CFG4=0x1030` before continuing. |
-| `ANA_LD_DATA_CTRL=0x000F` | Copper MDI transmitters are disabled | Check the PHY strap state and the indirect extended-register access. Confirm that the initialization restart completes and the value returns to `0x0200`. |
-| `BMSR` link bit is clear and `PHY_STATUS` does not show link | Copper Auto-Negotiation or cabling | Try a known-good cable and 1-Gb/s switch port, allow negotiation to restart, and compare `ANAR` with `ANLPAR`. |
-| Copper link is up, but `PCS_STATUS` bit 0 and LED 2 stay low | SGMII-over-LVDS path | Verify the 625-MHz clock, SGMII RX/TX pin assignments, `PHYCR` SGMII enable, PCS reset, and any Vivado bitslice or LOC warnings. |
-| LEDs 0, 1, and 2 are on and LED 3 toggles, but no packet is received | Host capture or network configuration | Capture on the correct interface, verify address `1.2.3.4/24` and UDP port 5678, and check the host firewall. |
-| ARP lookup or ping fails | Expected transmit-only behavior | Do not change PHY or PCS settings based on this result. The design never responds to ARP or ICMP; check board status through the LEDs and/or UART. |
-| LEDs 0, 1, and 2 are on, but LED 3 does not toggle | PCS client clock or transmit control | Check `clk125_out`, `sgmii_clk_en`, client reset, and `PCS_STATUS` speed bits before inspecting the UDP generator. |
+| PHY registers remain `0xFFFF` | MDIO is undriven or the PHY is not responding | Check PHY power and reset, PHY address `00011`, MDC, the bidirectional MDIO pin, and its pull-up. Probe MDC and MDIO if LED 6 is on. |
+| PHY registers remain `0x0000` | PHY is held in reset, unpowered, or MDIO is stuck low | Check `phy1_reset_b`, the power-down pin, PHY supplies, and MDIO for a short to ground. |
+| LED 0 stays off or LED 6 turns on | PHY initialization did not complete | Reprogram the FPGA, ensure reset is stable, then verify the MDIO reset, extended-register writes, and software restart sequence before debugging UDP. |
+| `PHYCR`, `CFG1`, or `CFG4` differs from its configured value | Configuration was not applied or was overwritten | Check the MDIO transaction sequence and reset history. Confirm `PHYCR=0x5848`, `CFG1=0x0300`, and `CFG4=0x1030`. |
+| `ANA_LD_DATA_CTRL=0x000F` | Copper MDI transmitters are disabled | Check the PHY strap state and indirect extended-register access. Confirm that initialization completes and the value returns to `0x0200`. |
+| `BMSR` link bit is clear and `PHYSTS` does not show link | Copper auto-negotiation or cabling | Try a known-good cable and 1-Gb/s switch port, allow negotiation to restart, and compare `ANAR` with `ANLPAR`. |
+| Copper link is up, but `PCS_STATUS` bit 0 and LED 2 stay low | SGMII-over-LVDS path | Verify the 625-MHz clock, SGMII RX/TX pin assignments, `PHYCR` SGMII enable, PCS reset, and any Vivado bitslice or location warnings. |
+| LEDs 0, 1, and 2 are on and LED 3 toggles, but no datagram is received | Host capture or network configuration | Capture on the correct interface, verify host address `1.2.3.4/24` and UDP port 5678, and check the host firewall. |
+| ARP lookup or ping fails | Expected transmit-only behavior | Do not change PHY or PCS settings. The design never responds to ARP or ICMP; use the LEDs and UART report instead. |
+| LEDs 0, 1, and 2 are on, but LED 3 does not toggle | PCS client clock or transmit control | Check `clk125_out`, `sgmii_clk_en`, client reset, and the `PCS_STATUS` speed bits before inspecting the UDP generator. |
+| `R` increases by less than `send_udp.py --count` | Host, switch, or link loss | Verify the selected interface and broadcast address, capture the traffic at the sender, and remember that UDP does not guarantee delivery. |
 | LED 5 is on and `RECR` increases | Copper-side receive errors | Try a known-good cable and switch port, then compare `RECR` before and after controlled traffic. |
-| LED 5 is on but `RECR` remains unchanged | SGMII/PCS receive error | Reset or reprogram to clear LED 5, then probe `gmii_rx_er`, `gmii_rx_dv`, `gmii_rxd`, and `PCS_STATUS[6:4]`. Normal carrier extension (`RX_DV=0`, `RX_ER=1`, `RXD=0x0F`) is filtered; check SGMII signal integrity and the 625-MHz reference clock if another error pattern repeats. |
+| LED 5 is on but `RECR` remains unchanged | SGMII/PCS receive error | Reset or reprogram to clear LED 5, then probe `gmii_rx_er`, `gmii_rx_dv`, `gmii_rxd`, and `PCS_STATUS[6:4]`. Normal carrier extension is filtered; check SGMII signal integrity and the 625-MHz reference clock if another error pattern repeats. |
 
 After taking corrective action, reset or reprogram the board and compare a new
-UART report with the previous one. Change one subsystem at a time; otherwise a
-new PCS, PHY, and host configuration can hide the original fault.
+UART report with the previous one. Change one subsystem at a time so a new PCS,
+PHY, or host configuration does not hide the original fault.
 
-## Vivado simulation
+## Simulation
 
-The project-generation script adds the following files to the Vivado `sim_1`
-fileset as VHDL-2008 simulation-only sources:
+`create_project.tcl` adds these VHDL-2008 simulation sources to the Vivado
+`sim_1` fileset:
 
-- `source/tb_udp_to_gmii.vhd`
-- `source/tb_dp83867_sgmii_init.vhd`
-- `source/mdio_slave.vhd`, the PHY model used by the MDIO testbench
+| Simulation top | Purpose | Expected note |
+|---|---|---|
+| `tb_udp_to_gmii` | Complete GMII byte stream, IPv4/UDP checksums, padding, Ethernet FCS, payload latching, and 100-Mb/s-style client clock enable | `Latched UDP payload-to-GMII frame verified` |
+| `tb_ethernet_statistics` | Sent, valid-receive, errored-receive, inactive-client, and 16-bit rollover behavior | `Ethernet statistics counters verified` |
+| `tb_dp83867_sgmii_init` | DP83867 MDIO configuration, link polling, and diagnostic-register polling | `DP83867 diagnostic-register polling verified` |
 
-These files are available under **Simulation Sources** in the generated Vivado
-project and are excluded from synthesis and implementation. The default
-simulation top is `tb_udp_to_gmii`.
+`source/mdio_slave.vhd` is the PHY model used by
+`tb_dp83867_sgmii_init`. Simulation-only sources are excluded from synthesis
+and implementation. The default simulation top is `tb_udp_to_gmii`.
 
-To run the UDP/GMII test in the Vivado GUI:
+### Vivado GUI
 
 1. Open `build/kcu116_ethernet_demo.xpr`.
-2. In **Sources**, select **Simulation Sources**.
-3. Right-click `tb_udp_to_gmii` and select **Set as Top**.
-4. Select **Flow Navigator > Simulation > Run Behavioral Simulation**.
-5. In the simulator, select **Run All**. The testbench stops itself after
-   completing its checks.
+2. Under **Simulation Sources**, right-click the desired testbench and select
+   **Set as Top**.
+3. Select **Flow Navigator > Simulation > Run Behavioral Simulation**.
+4. For `tb_udp_to_gmii`, run for `10 us` and stop after its verification note
+   appears. For either self-terminating testbench, select **Run All**.
 
-The Tcl console output should include:
+### Vivado Tcl console
 
-```text
-Latched UDP payload-to-GMII frame verified
+Run the three testbenches:
+
+```tcl
+set_property top tb_udp_to_gmii [get_filesets sim_1]
+launch_simulation -simset sim_1 -mode behavioral
+run 10 us
+close_sim
+
+foreach simulation_top {
+    tb_ethernet_statistics
+    tb_dp83867_sgmii_init
+} {
+    set_property top $simulation_top [get_filesets sim_1]
+    launch_simulation -simset sim_1 -mode behavioral
+    run all
+    close_sim
+}
 ```
 
-This test verifies the complete GMII byte stream, IPv4 and UDP checksums,
-Ethernet FCS, payload latching, and operation with the client clock enable
-pulsed as it is at 100 Mb/s.
-
-To run the PHY initialization and link-polling test, close the current
-simulation, set `tb_dp83867_sgmii_init` as the simulation top, and run
-Behavioral Simulation again. Select **Run All** so the simulation can progress
-through the complete MDIO sequence.
-
-Expected output includes:
+The DP83867 test additionally reports:
 
 ```text
 DP83867 configuration sequence verified
@@ -336,28 +422,14 @@ DP83867 RECR register polling verified
 DP83867 diagnostic-register polling verified
 ```
 
-The simulation sources can also be selected and launched from the Vivado Tcl
-console:
-
-```tcl
-set_property top tb_udp_to_gmii [get_filesets sim_1]
-launch_simulation -simset sim_1 -mode behavioral
-run all
-close_sim
-
-set_property top tb_dp83867_sgmii_init [get_filesets sim_1]
-launch_simulation -simset sim_1 -mode behavioral
-run all
-```
-
 ## Design notes
 
 - The fixed board 125-MHz clock runs MDIO so the PHY can be configured before
   its 625-MHz SGMII clock exists.
-- After reset, initialization writes `PHYCR=0x5848` to clear force-link-good
-  while retaining SGMII and Auto-MDIX, and writes `CFG1=0x0300` to select
-  automatic 1000BASE-T leader/follower resolution before restarting
-  Auto-Negotiation.
+- Initialization writes `PHYCR=0x5848` to clear force-link-good while retaining
+  SGMII and Auto-MDIX.
+- Initialization writes `CFG1=0x0300` to select automatic 1000BASE-T
+  leader/follower resolution before restarting auto-negotiation.
 - The PCS is held in reset until the MDIO sequence enables six-wire SGMII.
 - Client logic is clocked by `clk125_out` from the PCS, not the unrelated board
   oscillator.
@@ -365,16 +437,14 @@ run all
 - `sgmii_clk_en` advances the GMII transmitter at the negotiated byte rate.
 - The sticky GMII receive-error latch excludes the normal carrier-extension
   indication (`RX_DV=0`, `RX_ER=1`, `RXD=0x0F`).
+- The 16-bit Ethernet statistics use modulo arithmetic and cross into the UART
+  clock domain in Gray code.
 - `signal_detect` is tied high because the on-board LVDS connection has no
   separate loss-of-signal input.
 - `status_vector(0)` gates frame transmission until SGMII auto-negotiation is
   complete.
-
-This is deliberately a transmit demonstration rather than a complete
-general-purpose Ethernet MAC. The receive GMII interface is monitored for
-activity and errors, but received frames are not parsed or answered. In
-particular, the design has no ARP or ICMP responder and therefore cannot be
-discovered with ARP or tested with ping.
+- The receive GMII interface is monitored for activity and errors, but received
+  frames are not parsed or answered.
 
 ## References
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Send a UDP datagram as a broadcast on a selected local subnet."""
+"""Send UDP datagrams as broadcasts on a selected local subnet."""
 
 import argparse
 import collections
@@ -43,10 +43,19 @@ def parse_args():
         metavar="PORT",
         help="UDP destination port (default: 5678)",
     )
+    parser.add_argument(
+        "--count",
+        default=1,
+        type=int,
+        metavar="COUNT",
+        help="number of UDP datagrams to send (default: 1)",
+    )
     args = parser.parse_args()
 
     if not 1 <= args.port <= 65535:
         parser.error("--port must be between 1 and 65535")
+    if args.count < 1:
+        parser.error("--count must be at least 1")
 
     try:
         args.destination = str(ipaddress.IPv4Address(args.destination))
@@ -320,9 +329,18 @@ def main():
     try:
         sender.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         sender.bind((source_interface.address, 0))
-        sent_byte_count = sender.sendto(
-            args.payload, (broadcast_address, args.port)
-        )
+        total_sent_byte_count = 0
+        for _ in range(args.count):
+            sent_byte_count = sender.sendto(
+                args.payload, (broadcast_address, args.port)
+            )
+            if sent_byte_count != len(args.payload):
+                raise OSError(
+                    "only {} of {} datagram bytes were sent".format(
+                        sent_byte_count, len(args.payload)
+                    )
+                )
+            total_sent_byte_count += sent_byte_count
         source_address, source_port = sender.getsockname()
     except OSError as error:
         print(
@@ -343,14 +361,19 @@ def main():
     timestamp = datetime.datetime.now().astimezone().isoformat(
         timespec="seconds"
     )
+    datagram_word = "datagram" if args.count == 1 else "datagrams"
     print(
-        "[{}] {}:{} -> {}:{} - {} bytes sent via {}".format(
+        "[{}] {}:{} -> {}:{} - {} {} sent "
+        "({} bytes each, {} bytes total) via {}".format(
             timestamp,
             source_address,
             source_port,
             broadcast_address,
             args.port,
-            sent_byte_count,
+            args.count,
+            datagram_word,
+            len(args.payload),
+            total_sent_byte_count,
             source_interface.name,
         )
     )

@@ -30,12 +30,14 @@ add_files -norecurse [list \
     [file join $source_dir uart_tx_vector.vhd] \
     [file join $source_dir dp83867_sgmii_init.vhd] \
     [file join $source_dir udp_to_gmii.vhd] \
+    [file join $source_dir ethernet_statistics.vhd] \
     [file join $source_dir kcu116_ethernet_demo.vhd]]
 set_property file_type {VHDL 2008} [get_files *.vhd]
 
 set simulation_files [list \
     [file join $source_dir mdio_slave.vhd] \
     [file join $source_dir tb_udp_to_gmii.vhd] \
+    [file join $source_dir tb_ethernet_statistics.vhd] \
     [file join $source_dir tb_dp83867_sgmii_init.vhd]]
 add_files -fileset sim_1 -norecurse $simulation_files
 set simulation_sources [get_files -of_objects [get_filesets sim_1]]
