@@ -2,13 +2,18 @@
 #
 # Run from any directory:
 #   vivado -mode batch -source create_project.tcl
+# An optional first Tcl argument selects a different generated build directory.
 #
 # The script creates build/kcu116_ethernet_demo, generates the licensed
 # Gigabit Ethernet PCS/PMA IP, and builds a programming bitstream.
 
 set script_dir [file normalize [file dirname [info script]]]
 set source_dir [file normalize [file join $script_dir source]]
-set build_dir  [file normalize [file join $script_dir build]]
+if {$argc > 0} {
+    set build_dir [file normalize [lindex $argv 0]]
+} else {
+    set build_dir [file normalize [file join $script_dir build]]
+}
 set project_name kcu116_ethernet_demo
 set part_name xcku5p-ffvb676-2-e
 
@@ -26,19 +31,30 @@ if {[llength $kcu116_parts] > 0} {
 }
 
 add_files -norecurse [list \
+    [file join $source_dir dp83867_pkg.vhd] \
+    [file join $source_dir debug_status_pkg.vhd] \
     [file join $source_dir mdio_master.vhd] \
-    [file join $source_dir uart_tx_vector.vhd] \
+    [file join $source_dir reset_synchronizer.vhd] \
+    [file join $source_dir gray_counter_cdc.vhd] \
+    [file join $source_dir status_snapshot_cdc.vhd] \
+    [file join $source_dir uart_tx.vhd] \
+    [file join $source_dir uart_status_report.vhd] \
     [file join $source_dir dp83867_sgmii_init.vhd] \
     [file join $source_dir udp_to_gmii.vhd] \
     [file join $source_dir ethernet_statistics.vhd] \
+    [file join $source_dir pcs_pma_wrapper.vhd] \
     [file join $source_dir kcu116_ethernet_demo.vhd]]
 set_property file_type {VHDL 2008} [get_files *.vhd]
 
 set simulation_files [list \
+    [file join $source_dir mdio_slave_bfm.vhd] \
     [file join $source_dir mdio_slave.vhd] \
     [file join $source_dir tb_udp_to_gmii.vhd] \
+    [file join $source_dir tb_udp_to_gmii_no_padding.vhd] \
     [file join $source_dir tb_ethernet_statistics.vhd] \
-    [file join $source_dir tb_dp83867_sgmii_init.vhd]]
+    [file join $source_dir tb_dp83867_sgmii_init.vhd] \
+    [file join $source_dir tb_mdio_master.vhd] \
+    [file join $source_dir tb_uart_status.vhd]]
 add_files -fileset sim_1 -norecurse $simulation_files
 set simulation_sources [get_files -of_objects [get_filesets sim_1]]
 set_property file_type {VHDL 2008} $simulation_sources

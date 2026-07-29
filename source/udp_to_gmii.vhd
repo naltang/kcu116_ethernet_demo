@@ -37,6 +37,12 @@ architecture rtl of udp_to_gmii is
     constant ETHERNET_HEADER_BYTES : positive := 14;
     constant IPV4_HEADER_BYTES     : positive := 20;
     constant UDP_HEADER_BYTES      : positive := 8;
+    constant DESTINATION_MAC_OFFSET : natural := 0;
+    constant SOURCE_MAC_OFFSET      : natural := 6;
+    constant ETHERTYPE_OFFSET       : natural := 12;
+    constant IPV4_OFFSET            : natural := ETHERNET_HEADER_BYTES;
+    constant UDP_OFFSET             : natural :=
+        ETHERNET_HEADER_BYTES + IPV4_HEADER_BYTES;
     constant PROTOCOL_HEADER_BYTES : positive :=
         ETHERNET_HEADER_BYTES + IPV4_HEADER_BYTES + UDP_HEADER_BYTES;
     constant MIN_FRAME_DATA_BYTES  : positive := 60;
@@ -63,6 +69,17 @@ architecture rtl of udp_to_gmii is
     constant PADDING_BYTE_COUNT : natural :=
         calculate_padding_byte_count(UNPADDED_FRAME_DATA_BYTES);
 
+    function last_index_or_zero(count_value : natural) return natural is
+    begin
+        if count_value = 0 then
+            return 0;
+        end if;
+        return count_value - 1;
+    end function;
+
+    constant PADDING_LAST_INDEX : natural :=
+        last_index_or_zero(PADDING_BYTE_COUNT);
+
     function checksum_add (
         sum_value  : unsigned(15 downto 0);
         word_value : unsigned(15 downto 0)
@@ -87,29 +104,6 @@ architecture rtl of udp_to_gmii is
             result := (others => '1');
         end if;
         return std_logic_vector(result);
-    end function;
-
-    function leading_byte (
-        payload : std_logic_vector
-    ) return std_logic_vector is
-    begin
-        return payload(payload'high downto payload'high - 7);
-    end function;
-
-    function leading_word (
-        payload         : std_logic_vector;
-        has_second_byte : boolean
-    ) return unsigned is
-        variable result          : unsigned(15 downto 0) := (others => '0');
-        variable shifted_payload : unsigned(payload'range);
-    begin
-        result(15 downto 8) := unsigned(leading_byte(payload));
-        if has_second_byte then
-            shifted_payload := shift_left(unsigned(payload), 8);
-            result(7 downto 0) := unsigned(
-                leading_byte(std_logic_vector(shifted_payload)));
-        end if;
-        return result;
     end function;
 
     function crc32_next (
@@ -187,43 +181,55 @@ architecture rtl of udp_to_gmii is
         variable result : std_logic_vector(7 downto 0) := x"00";
     begin
         case byte_index is
-            when 0 to 5 =>
+            when DESTINATION_MAC_OFFSET to SOURCE_MAC_OFFSET - 1 =>
                 result := DESTINATION_MAC_ADDRESS(
                     47 - byte_index * 8 downto 40 - byte_index * 8);
-            when 6 to 11 =>
+            when SOURCE_MAC_OFFSET to ETHERTYPE_OFFSET - 1 =>
                 result := SOURCE_MAC_ADDRESS(
-                    47 - (byte_index - 6) * 8 downto
-                    40 - (byte_index - 6) * 8);
-            when 12 => result := x"08";
-            when 13 => result := x"00";
-            when 14 => result := x"45";
-            when 15 => result := x"00";
-            when 16 => result := IP_TOTAL_LENGTH_WORD(15 downto 8);
-            when 17 => result := IP_TOTAL_LENGTH_WORD(7 downto 0);
-            when 18 => result := x"00";
-            when 19 => result := x"01";
-            when 20 => result := x"00";
-            when 21 => result := x"00";
-            when 22 => result := x"40";
-            when 23 => result := x"11";
-            when 24 => result := IPV4_HEADER_CHECKSUM(15 downto 8);
-            when 25 => result := IPV4_HEADER_CHECKSUM(7 downto 0);
-            when 26 to 29 =>
+                    47 - (byte_index - SOURCE_MAC_OFFSET) * 8 downto
+                    40 - (byte_index - SOURCE_MAC_OFFSET) * 8);
+            when ETHERTYPE_OFFSET => result := x"08";
+            when ETHERTYPE_OFFSET + 1 => result := x"00";
+            when IPV4_OFFSET => result := x"45";
+            when IPV4_OFFSET + 1 => result := x"00";
+            when IPV4_OFFSET + 2 =>
+                result := IP_TOTAL_LENGTH_WORD(15 downto 8);
+            when IPV4_OFFSET + 3 =>
+                result := IP_TOTAL_LENGTH_WORD(7 downto 0);
+            when IPV4_OFFSET + 4 => result := x"00";
+            when IPV4_OFFSET + 5 => result := x"01";
+            when IPV4_OFFSET + 6 => result := x"00";
+            when IPV4_OFFSET + 7 => result := x"00";
+            when IPV4_OFFSET + 8 => result := x"40";
+            when IPV4_OFFSET + 9 => result := x"11";
+            when IPV4_OFFSET + 10 =>
+                result := IPV4_HEADER_CHECKSUM(15 downto 8);
+            when IPV4_OFFSET + 11 =>
+                result := IPV4_HEADER_CHECKSUM(7 downto 0);
+            when IPV4_OFFSET + 12 to IPV4_OFFSET + 15 =>
                 result := SOURCE_IP_ADDRESS(
-                    31 - (byte_index - 26) * 8 downto
-                    24 - (byte_index - 26) * 8);
-            when 30 to 33 =>
+                    31 - (byte_index - IPV4_OFFSET - 12) * 8 downto
+                    24 - (byte_index - IPV4_OFFSET - 12) * 8);
+            when IPV4_OFFSET + 16 to IPV4_OFFSET + 19 =>
                 result := DESTINATION_IP_ADDRESS(
-                    31 - (byte_index - 30) * 8 downto
-                    24 - (byte_index - 30) * 8);
-            when 34 => result := SOURCE_UDP_PORT_WORD(15 downto 8);
-            when 35 => result := SOURCE_UDP_PORT_WORD(7 downto 0);
-            when 36 => result := DESTINATION_UDP_PORT_WORD(15 downto 8);
-            when 37 => result := DESTINATION_UDP_PORT_WORD(7 downto 0);
-            when 38 => result := UDP_LENGTH_WORD(15 downto 8);
-            when 39 => result := UDP_LENGTH_WORD(7 downto 0);
-            when 40 => result := udp_checksum_value(15 downto 8);
-            when 41 => result := udp_checksum_value(7 downto 0);
+                    31 - (byte_index - IPV4_OFFSET - 16) * 8 downto
+                    24 - (byte_index - IPV4_OFFSET - 16) * 8);
+            when UDP_OFFSET =>
+                result := SOURCE_UDP_PORT_WORD(15 downto 8);
+            when UDP_OFFSET + 1 =>
+                result := SOURCE_UDP_PORT_WORD(7 downto 0);
+            when UDP_OFFSET + 2 =>
+                result := DESTINATION_UDP_PORT_WORD(15 downto 8);
+            when UDP_OFFSET + 3 =>
+                result := DESTINATION_UDP_PORT_WORD(7 downto 0);
+            when UDP_OFFSET + 4 =>
+                result := UDP_LENGTH_WORD(15 downto 8);
+            when UDP_OFFSET + 5 =>
+                result := UDP_LENGTH_WORD(7 downto 0);
+            when UDP_OFFSET + 6 =>
+                result := udp_checksum_value(15 downto 8);
+            when UDP_OFFSET + 7 =>
+                result := udp_checksum_value(7 downto 0);
             when others => null;
         end case;
         return result;
@@ -250,19 +256,19 @@ architecture rtl of udp_to_gmii is
     signal fcs_counter           : natural range 0 to 3 := 0;
     signal ifg_counter           : natural range 0 to 11 := 0;
 
-    signal tx_payload_shift       : std_logic_vector(udp_payload'range) :=
-        (others => '0');
-    signal checksum_payload_shift : std_logic_vector(udp_payload'range) :=
+    signal payload_latched : std_logic_vector(udp_payload'range) :=
         (others => '0');
     signal udp_sum      : unsigned(15 downto 0) := (others => '0');
     signal udp_checksum : std_logic_vector(15 downto 0) := (others => '0');
     signal frame_crc    : std_logic_vector(31 downto 0) := (others => '1');
+    signal udp_ready_i  : std_logic;
 begin
     assert IP_TOTAL_LENGTH <= 1500
         report "UDP payload exceeds the standard 1500-byte Ethernet MTU"
         severity failure;
 
-    udp_ready  <= '1' when state = IDLE and rst = '0' else '0';
+    udp_ready_i <= '1' when state = IDLE and rst = '0' else '0';
+    udp_ready   <= udp_ready_i;
     gmii_tx_er <= '0';
 
     transmit : process(clk)
@@ -270,6 +276,8 @@ begin
         variable data_value   : std_logic_vector(7 downto 0);
         variable fcs_value    : std_logic_vector(31 downto 0);
         variable has_low_byte : boolean;
+        variable payload_word : unsigned(15 downto 0);
+        variable payload_high : natural;
     begin
         if rising_edge(clk) then
             frame_sent <= '0';
@@ -283,8 +291,7 @@ begin
                 padding_counter           <= 0;
                 fcs_counter               <= 0;
                 ifg_counter               <= 0;
-                tx_payload_shift          <= (others => '0');
-                checksum_payload_shift    <= (others => '0');
+                payload_latched           <= (others => '0');
                 udp_sum                   <= (others => '0');
                 udp_checksum              <= (others => '0');
                 frame_crc                 <= (others => '1');
@@ -295,9 +302,8 @@ begin
                     when IDLE =>
                         gmii_tx_en <= '0';
                         gmii_txd   <= x"00";
-                        if udp_valid = '1' and udp_ready = '1' then
-                            tx_payload_shift       <= udp_payload;
-                            checksum_payload_shift <= udp_payload;
+                        if udp_valid = '1' and udp_ready_i = '1' then
+                            payload_latched       <= udp_payload;
                             checksum_word_counter  <= 0;
                             udp_sum                <= UDP_INITIAL_SUM;
                             frame_crc              <= (others => '1');
@@ -310,13 +316,21 @@ begin
                         has_low_byte :=
                             checksum_word_counter * 2 + 1 <
                             UDP_PAYLOAD_BYTE_COUNT;
+                        payload_high := payload_latched'high -
+                            checksum_word_counter * 16;
+                        payload_word := (others => '0');
+                        payload_word(15 downto 8) := unsigned(
+                            payload_latched(
+                                payload_high downto payload_high - 7));
+                        if has_low_byte then
+                            payload_word(7 downto 0) := unsigned(
+                                payload_latched(
+                                    payload_high - 8 downto
+                                    payload_high - 15));
+                        end if;
                         next_sum := checksum_add(
-                            udp_sum,
-                            leading_word(
-                                checksum_payload_shift, has_low_byte));
+                            udp_sum, payload_word);
                         udp_sum <= next_sum;
-                        checksum_payload_shift <= std_logic_vector(
-                            shift_left(unsigned(checksum_payload_shift), 16));
 
                         if checksum_word_counter = PAYLOAD_WORD_COUNT - 1 then
                             udp_checksum     <= finish_udp_checksum(next_sum);
@@ -367,12 +381,13 @@ begin
 
                     when PAYLOAD =>
                         if clk_enable = '1' then
-                            data_value := leading_byte(tx_payload_shift);
+                            payload_high := payload_latched'high -
+                                payload_counter * 8;
+                            data_value := payload_latched(
+                                payload_high downto payload_high - 7);
                             gmii_tx_en <= '1';
                             gmii_txd   <= data_value;
                             frame_crc  <= crc32_next(frame_crc, data_value);
-                            tx_payload_shift <= std_logic_vector(
-                                shift_left(unsigned(tx_payload_shift), 8));
 
                             if payload_counter =
                                UDP_PAYLOAD_BYTE_COUNT - 1 then
@@ -395,7 +410,7 @@ begin
                             gmii_txd   <= x"00";
                             frame_crc  <= crc32_next(frame_crc, x"00");
 
-                            if padding_counter = PADDING_BYTE_COUNT - 1 then
+                            if padding_counter = PADDING_LAST_INDEX then
                                 padding_counter <= 0;
                                 fcs_counter     <= 0;
                                 state           <= FCS;

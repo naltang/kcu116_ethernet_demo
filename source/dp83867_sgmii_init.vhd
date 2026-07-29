@@ -1,6 +1,7 @@
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
+use work.dp83867_pkg.all;
 
 -- Initializes the KCU116 on-board TI DP83867 for six-wire SGMII.
 --
@@ -22,19 +23,7 @@ entity dp83867_sgmii_init is
         mdio        : inout std_logic;
         config_done : out   std_logic;
         link_up     : out   std_logic;
-        phy_status  : out   std_logic_vector(15 downto 0);
-        phy_control : out   std_logic_vector(15 downto 0);
-        phy_cfg1    : out   std_logic_vector(15 downto 0);
-        phy_bmcr    : out   std_logic_vector(15 downto 0);
-        phy_bmsr    : out   std_logic_vector(15 downto 0);
-        phy_anar    : out   std_logic_vector(15 downto 0);
-        phy_anlpar  : out   std_logic_vector(15 downto 0);
-        phy_aner    : out   std_logic_vector(15 downto 0);
-        phy_sts1    : out   std_logic_vector(15 downto 0);
-        phy_recr    : out   std_logic_vector(15 downto 0);
-        phy_cfg4    : out   std_logic_vector(15 downto 0);
-        phy_strap2  : out   std_logic_vector(15 downto 0);
-        phy_ana_ld  : out   std_logic_vector(15 downto 0);
+        diagnostics : out   phy_diagnostics_t;
         error       : out   std_logic
     );
 end entity dp83867_sgmii_init;
@@ -45,139 +34,156 @@ architecture rtl of dp83867_sgmii_init is
     constant POLL_CYCLES       : positive := CLK_FREQ_HZ / 100;     -- 10 ms
     constant RESET_READ_LIMIT : positive := 2048;
 
-    type op_kind_t is (
-        OP_WRITE, OP_READ, OP_READ_RESET, OP_READ_RESTART
-    );
-    type command_t is record
-        kind : op_kind_t;
-        reg  : std_logic_vector(4 downto 0);
-        data : std_logic_vector(15 downto 0);
-    end record;
-    type command_array_t is array (natural range <>) of command_t;
-
-    type poll_target_t is (
+    type capture_target_t is (
         CAP_NONE, CAP_BMSR, CAP_PHYSTS, CAP_PHYCR, CAP_CFG1,
         CAP_BMCR, CAP_ANAR, CAP_ANLPAR, CAP_ANER, CAP_STS1,
         CAP_RECR, CAP_CFG4, CAP_STRAP2, CAP_ANA_LD
     );
-    type poll_command_t is record
-        kind   : op_kind_t;
-        reg    : std_logic_vector(4 downto 0);
-        data   : std_logic_vector(15 downto 0);
-        target : poll_target_t;
+    type command_kind_t is (COMMAND_WRITE, COMMAND_READ);
+    type command_t is record
+        kind       : command_kind_t;
+        reg        : mdio_register_address_t;
+        data       : mdio_word_t;
+        target     : capture_target_t;
+        clear_mask : mdio_word_t;
     end record;
-    type poll_command_array_t is array (natural range <>) of poll_command_t;
+    type command_array_t is array (natural range <>) of command_t;
 
-    constant REG_BMCR   : std_logic_vector(4 downto 0) := "00000";
-    constant REG_BMSR   : std_logic_vector(4 downto 0) := "00001";
-    constant REG_ANAR   : std_logic_vector(4 downto 0) := "00100";
-    constant REG_ANLPAR : std_logic_vector(4 downto 0) := "00101";
-    constant REG_ANER   : std_logic_vector(4 downto 0) := "00110";
-    constant REG_CFG1   : std_logic_vector(4 downto 0) := "01001";
-    constant REG_STS1   : std_logic_vector(4 downto 0) := "01010";
-    constant REG_REGCR  : std_logic_vector(4 downto 0) := "01101";
-    constant REG_ADDAR  : std_logic_vector(4 downto 0) := "01110";
-    constant REG_PHYCR  : std_logic_vector(4 downto 0) := "10000";
-    constant REG_PHYSTS : std_logic_vector(4 downto 0) := "10001";
-    constant REG_RECR   : std_logic_vector(4 downto 0) := "10101";
-    constant REG_CTRL   : std_logic_vector(4 downto 0) := "11111";
+    function write_command (
+        reg_value  : mdio_register_address_t;
+        data_value : mdio_word_t
+    ) return command_t is
+    begin
+        return (COMMAND_WRITE, reg_value, data_value, CAP_NONE, x"0000");
+    end function;
+
+    function read_command (
+        reg_value    : mdio_register_address_t;
+        target_value : capture_target_t := CAP_NONE;
+        clear_mask   : mdio_word_t := x"0000"
+    ) return command_t is
+    begin
+        return (
+            COMMAND_READ, reg_value, x"0000", target_value, clear_mask);
+    end function;
+
+    function extended_address_command (
+        address_value : mdio_word_t
+    ) return command_t is
+    begin
+        return write_command(DP83867_REG_ADDAR, address_value);
+    end function;
+
+    function extended_data_write (
+        data_value : mdio_word_t
+    ) return command_t is
+    begin
+        return write_command(DP83867_REG_ADDAR, data_value);
+    end function;
+
+    function extended_data_read (
+        target_value : capture_target_t
+    ) return command_t is
+    begin
+        return read_command(DP83867_REG_ADDAR, target_value);
+    end function;
 
     constant INIT_COMMANDS : command_array_t(0 to 22) := (
         -- Hardware reset is followed by the standard software reset.
-        (OP_WRITE,      REG_BMCR,  x"8000"),
-        (OP_READ_RESET, REG_BMCR,  x"0000"),
+        write_command(DP83867_REG_BMCR, x"8000"),
+        read_command(DP83867_REG_BMCR, clear_mask => x"8000"),
 
         -- Correct the KCU116 strap-derived copper settings before starting
         -- Auto-Negotiation.  FORCE_LINK_GOOD must be clear in PHYCR, while
         -- SGMII and automatic MDI/MDIX remain enabled.  CFG1 uses automatic
         -- leader/follower resolution and advertises both 1000BASE-T modes.
-        (OP_WRITE, REG_PHYCR, x"5848"),
-        (OP_WRITE, REG_CFG1,  x"0300"),
+        write_command(DP83867_REG_PHYCR, x"5848"),
+        write_command(DP83867_REG_CFG1, x"0300"),
 
         -- SGMIICTL1 0x00D3: six-wire mode and 625 MHz clock output.
-        (OP_WRITE, REG_REGCR, x"001F"),
-        (OP_WRITE, REG_ADDAR, x"00D3"),
-        (OP_WRITE, REG_REGCR, x"401F"),
-        (OP_WRITE, REG_ADDAR, x"4000"),
+        write_command(DP83867_REG_REGCR, x"001F"),
+        extended_address_command(DP83867_EXT_SGMIICTL1),
+        write_command(DP83867_REG_REGCR, x"401F"),
+        extended_data_write(x"4000"),
 
         -- CFG2 0x0014: interrupt polarity, SGMII AN, speed optimization.
-        (OP_WRITE, REG_REGCR, x"001F"),
-        (OP_WRITE, REG_ADDAR, x"0014"),
-        (OP_WRITE, REG_REGCR, x"401F"),
-        (OP_WRITE, REG_ADDAR, x"2BC0"),
+        write_command(DP83867_REG_REGCR, x"001F"),
+        extended_address_command(DP83867_EXT_CFG2),
+        write_command(DP83867_REG_REGCR, x"401F"),
+        extended_data_write(x"2BC0"),
 
         -- RGMIICTL 0x0032: disable the unused RGMII interface.
-        (OP_WRITE, REG_REGCR, x"001F"),
-        (OP_WRITE, REG_ADDAR, x"0032"),
-        (OP_WRITE, REG_REGCR, x"401F"),
-        (OP_WRITE, REG_ADDAR, x"0053"),
+        write_command(DP83867_REG_REGCR, x"001F"),
+        extended_address_command(DP83867_EXT_RGMIICTL),
+        write_command(DP83867_REG_REGCR, x"401F"),
+        extended_data_write(x"0053"),
 
         -- CFG4 0x0031: KCU116 RX_CTRL strap workaround.
         -- Clear INT_TST_MODE_1 (bit 7); keep the documented default values
         -- for the SGMII AN timer and reserved fields.
-        (OP_WRITE, REG_REGCR, x"001F"),
-        (OP_WRITE, REG_ADDAR, x"0031"),
-        (OP_WRITE, REG_REGCR, x"401F"),
-        (OP_WRITE, REG_ADDAR, x"1030"),
+        write_command(DP83867_REG_REGCR, x"001F"),
+        extended_address_command(DP83867_EXT_CFG4),
+        write_command(DP83867_REG_REGCR, x"401F"),
+        extended_data_write(x"1030"),
 
         -- Apply the extended-register settings.  CTRL.SW_RESTART preserves
         -- the register file but restarts the PHY state machines.
-        (OP_WRITE,        REG_CTRL, x"4000"),
-        (OP_READ_RESTART, REG_CTRL, x"0000"),
+        write_command(DP83867_REG_CTRL, x"4000"),
+        read_command(DP83867_REG_CTRL, clear_mask => x"C000"),
 
         -- Start copper auto-negotiation only after the final restart has
         -- completed.
-        (OP_WRITE, REG_BMCR, x"1340")
+        write_command(DP83867_REG_BMCR, x"1340")
     );
 
-    constant POLL_COMMANDS : poll_command_array_t(0 to 22) := (
+    constant POLL_COMMANDS : command_array_t(0 to 22) := (
         -- BMSR link status is latched low, so discard the first read.
-        (OP_READ,  REG_BMSR,   x"0000", CAP_NONE),
-        (OP_READ,  REG_BMSR,   x"0000", CAP_BMSR),
-        (OP_READ,  REG_PHYSTS, x"0000", CAP_PHYSTS),
-        (OP_READ,  REG_PHYCR,  x"0000", CAP_PHYCR),
-        (OP_READ,  REG_CFG1,   x"0000", CAP_CFG1),
-        (OP_READ,  REG_BMCR,   x"0000", CAP_BMCR),
-        (OP_READ,  REG_ANAR,   x"0000", CAP_ANAR),
-        (OP_READ,  REG_ANLPAR, x"0000", CAP_ANLPAR),
-        (OP_READ,  REG_ANER,   x"0000", CAP_ANER),
-        (OP_READ,  REG_STS1,   x"0000", CAP_STS1),
-        (OP_READ,  REG_RECR,   x"0000", CAP_RECR),
+        read_command(DP83867_REG_BMSR),
+        read_command(DP83867_REG_BMSR, CAP_BMSR),
+        read_command(DP83867_REG_PHYSTS, CAP_PHYSTS),
+        read_command(DP83867_REG_PHYCR, CAP_PHYCR),
+        read_command(DP83867_REG_CFG1, CAP_CFG1),
+        read_command(DP83867_REG_BMCR, CAP_BMCR),
+        read_command(DP83867_REG_ANAR, CAP_ANAR),
+        read_command(DP83867_REG_ANLPAR, CAP_ANLPAR),
+        read_command(DP83867_REG_ANER, CAP_ANER),
+        read_command(DP83867_REG_STS1, CAP_STS1),
+        read_command(DP83867_REG_RECR, CAP_RECR),
 
         -- Indirect read of CFG4, extended address 0x0031.
-        (OP_WRITE, REG_REGCR,  x"001F", CAP_NONE),
-        (OP_WRITE, REG_ADDAR,  x"0031", CAP_NONE),
-        (OP_WRITE, REG_REGCR,  x"401F", CAP_NONE),
-        (OP_READ,  REG_ADDAR,  x"0000", CAP_CFG4),
+        write_command(DP83867_REG_REGCR, x"001F"),
+        extended_address_command(DP83867_EXT_CFG4),
+        write_command(DP83867_REG_REGCR, x"401F"),
+        extended_data_read(CAP_CFG4),
 
         -- Indirect read of STRAP_STS2, extended address 0x006F.
-        (OP_WRITE, REG_REGCR,  x"001F", CAP_NONE),
-        (OP_WRITE, REG_ADDAR,  x"006F", CAP_NONE),
-        (OP_WRITE, REG_REGCR,  x"401F", CAP_NONE),
-        (OP_READ,  REG_ADDAR,  x"0000", CAP_STRAP2),
+        write_command(DP83867_REG_REGCR, x"001F"),
+        extended_address_command(DP83867_EXT_STRAP_STS2),
+        write_command(DP83867_REG_REGCR, x"401F"),
+        extended_data_read(CAP_STRAP2),
 
         -- Indirect read of the MDI transmitter control register.  Its normal
         -- value is 0x0200; 0x000F indicates disabled copper transmitters.
-        (OP_WRITE, REG_REGCR,  x"001F", CAP_NONE),
-        (OP_WRITE, REG_ADDAR,  x"00DD", CAP_NONE),
-        (OP_WRITE, REG_REGCR,  x"401F", CAP_NONE),
-        (OP_READ,  REG_ADDAR,  x"0000", CAP_ANA_LD)
+        write_command(DP83867_REG_REGCR, x"001F"),
+        extended_address_command(DP83867_EXT_ANA_LD_DATA_CTRL),
+        write_command(DP83867_REG_REGCR, x"401F"),
+        extended_data_read(CAP_ANA_LD)
     );
 
+    type phase_t is (INITIALIZATION, POLLING);
     type state_t is (
-        RESET_HOLD, POST_RESET_WAIT, INIT_ISSUE, INIT_WAIT,
-        POLL_DELAY, POLL_ISSUE, POLL_WAIT
+        RESET_HOLD, POST_RESET_WAIT, COMMAND_ISSUE, COMMAND_WAIT, POLL_DELAY
     );
     signal state : state_t := RESET_HOLD;
+    signal phase : phase_t := INITIALIZATION;
 
     signal delay_count   : natural range 0 to POST_RESET_CYCLES - 1 := 0;
     signal poll_count    : natural range 0 to POLL_CYCLES - 1 := 0;
     signal command_index : natural range INIT_COMMANDS'range :=
         INIT_COMMANDS'low;
-    signal poll_index    : natural range POLL_COMMANDS'range :=
-        POLL_COMMANDS'low;
+    signal current_command : command_t := INIT_COMMANDS(INIT_COMMANDS'low);
 
-    signal cmd_reg       : std_logic_vector(4 downto 0) := REG_BMCR;
+    signal cmd_reg       : std_logic_vector(4 downto 0) := DP83867_REG_BMCR;
     signal cmd_data      : std_logic_vector(15 downto 0) := (others => '0');
     signal cmd_opcode    : std_logic_vector(1 downto 0) := "01";
     signal cmd_valid     : std_logic := '0';
@@ -191,74 +197,41 @@ architecture rtl of dp83867_sgmii_init is
     signal reset_reads   : natural range 0 to RESET_READ_LIMIT - 1 := 0;
     signal config_done_i : std_logic := '0';
     signal link_up_i     : std_logic := '0';
-    signal phy_status_i  : std_logic_vector(15 downto 0) := (others => '0');
-    signal phy_control_i : std_logic_vector(15 downto 0) := (others => '0');
-    signal phy_cfg1_i    : std_logic_vector(15 downto 0) := (others => '0');
-    signal phy_bmcr_i    : std_logic_vector(15 downto 0) := (others => '0');
-    signal phy_bmsr_i    : std_logic_vector(15 downto 0) := (others => '0');
-    signal phy_anar_i    : std_logic_vector(15 downto 0) := (others => '0');
-    signal phy_anlpar_i  : std_logic_vector(15 downto 0) := (others => '0');
-    signal phy_aner_i    : std_logic_vector(15 downto 0) := (others => '0');
-    signal phy_sts1_i    : std_logic_vector(15 downto 0) := (others => '0');
-    signal phy_recr_i    : std_logic_vector(15 downto 0) := (others => '0');
-    signal phy_cfg4_i    : std_logic_vector(15 downto 0) := (others => '0');
-    signal phy_strap2_i  : std_logic_vector(15 downto 0) := (others => '0');
-    signal phy_ana_ld_i  : std_logic_vector(15 downto 0) := (others => '0');
-    signal error_i       : std_logic := '0';
+    signal diagnostics_i : phy_diagnostics_t := PHY_DIAGNOSTICS_RESET;
+    signal sticky_error  : std_logic := '0';
 begin
     assert CLK_FREQ_HZ >= 1_000_000
         report "CLK_FREQ_HZ is too low" severity failure;
     assert MDC_FREQ_HZ <= 2_500_000
         report "Clause-22 MDC must not exceed 2.5 MHz" severity failure;
+    assert CLK_FREQ_HZ >= 2 * MDC_FREQ_HZ
+        report "CLK_FREQ_HZ must be at least twice MDC_FREQ_HZ"
+        severity failure;
+    assert ((CLK_FREQ_HZ + 2 * MDC_FREQ_HZ - 1) /
+            (2 * MDC_FREQ_HZ)) - 1 <= 255
+        report "MDC prescaler does not fit in eight bits" severity failure;
 
     mdio <= mdio_out when mdio_tri = '0' else 'Z';
 
     config_done <= config_done_i;
     link_up     <= link_up_i;
-    phy_status  <= phy_status_i;
-    phy_control <= phy_control_i;
-    phy_cfg1    <= phy_cfg1_i;
-    phy_bmcr    <= phy_bmcr_i;
-    phy_bmsr    <= phy_bmsr_i;
-    phy_anar    <= phy_anar_i;
-    phy_anlpar  <= phy_anlpar_i;
-    phy_aner    <= phy_aner_i;
-    phy_sts1    <= phy_sts1_i;
-    phy_recr    <= phy_recr_i;
-    phy_cfg4    <= phy_cfg4_i;
-    phy_strap2  <= phy_strap2_i;
-    phy_ana_ld  <= phy_ana_ld_i;
-    error       <= error_i;
+    diagnostics <= diagnostics_i;
+    error       <= sticky_error;
     phy_rst_n   <= '0' when state = RESET_HOLD else '1';
 
-    -- Select the command presented to the common MDIO master.
+    current_command <= INIT_COMMANDS(command_index)
+        when phase = INITIALIZATION else POLL_COMMANDS(command_index);
+
     command_mux : process(all)
     begin
-        cmd_reg    <= REG_BMSR;
+        cmd_reg    <= current_command.reg;
         cmd_data   <= (others => '0');
-        cmd_opcode <= "10"; -- Clause-22 read
-        cmd_valid  <= '0';
-
-        case state is
-            when INIT_ISSUE =>
-                cmd_reg  <= INIT_COMMANDS(command_index).reg;
-                cmd_data <= INIT_COMMANDS(command_index).data;
-                if INIT_COMMANDS(command_index).kind = OP_WRITE then
-                    cmd_opcode <= "01";
-                end if;
-                cmd_valid <= '1';
-
-            when POLL_ISSUE =>
-                cmd_reg  <= POLL_COMMANDS(poll_index).reg;
-                cmd_data <= POLL_COMMANDS(poll_index).data;
-                if POLL_COMMANDS(poll_index).kind = OP_WRITE then
-                    cmd_opcode <= "01";
-                end if;
-                cmd_valid <= '1';
-
-            when others =>
-                null;
-        end case;
+        cmd_opcode <= MDIO_OP_READ;
+        cmd_valid  <= '1' when state = COMMAND_ISSUE else '0';
+        if current_command.kind = COMMAND_WRITE then
+            cmd_data   <= current_command.data;
+            cmd_opcode <= MDIO_OP_WRITE;
+        end if;
     end process command_mux;
 
     mdio_master_i : entity work.mdio_master
@@ -279,43 +252,52 @@ begin
             mdio_o         => mdio_out,
             mdio_t         => mdio_tri,
             busy           => master_busy,
-            prescale       => std_logic_vector(to_unsigned(
+            prescale       =>
                 ((CLK_FREQ_HZ + 2 * MDC_FREQ_HZ - 1) /
-                 (2 * MDC_FREQ_HZ)) - 1, 8))
+                 (2 * MDC_FREQ_HZ)) - 1
         );
 
     controller : process(clk)
+        procedure advance_command is
+        begin
+            reset_reads <= 0;
+            if phase = INITIALIZATION then
+                if command_index = INIT_COMMANDS'high then
+                    config_done_i <= '1';
+                    poll_count    <= 0;
+                    phase         <= POLLING;
+                    state         <= POLL_DELAY;
+                else
+                    command_index <= command_index + 1;
+                    state         <= COMMAND_ISSUE;
+                end if;
+            elsif command_index = POLL_COMMANDS'high then
+                state <= POLL_DELAY;
+            else
+                command_index <= command_index + 1;
+                state         <= COMMAND_ISSUE;
+            end if;
+        end procedure;
     begin
         if rising_edge(clk) then
             if rst = '1' then
                 state          <= RESET_HOLD;
+                phase          <= INITIALIZATION;
                 reset_count    <= 0;
                 reset_reads    <= 0;
                 delay_count    <= 0;
                 poll_count     <= 0;
                 command_index  <= INIT_COMMANDS'low;
-                poll_index     <= POLL_COMMANDS'low;
                 config_done_i  <= '0';
                 link_up_i      <= '0';
-                phy_status_i   <= (others => '0');
-                phy_control_i  <= (others => '0');
-                phy_cfg1_i     <= (others => '0');
-                phy_bmcr_i     <= (others => '0');
-                phy_bmsr_i     <= (others => '0');
-                phy_anar_i     <= (others => '0');
-                phy_anlpar_i   <= (others => '0');
-                phy_aner_i     <= (others => '0');
-                phy_sts1_i     <= (others => '0');
-                phy_recr_i     <= (others => '0');
-                phy_cfg4_i     <= (others => '0');
-                phy_strap2_i   <= (others => '0');
-                phy_ana_ld_i   <= (others => '0');
-                error_i        <= '0';
+                diagnostics_i  <= PHY_DIAGNOSTICS_RESET;
+                sticky_error   <= '0';
             else
                 case state is
                     when RESET_HOLD =>
                         config_done_i <= '0';
                         link_up_i     <= '0';
+                        phase         <= INITIALIZATION;
                         if reset_count = PHY_RESET_CYCLES - 1 then
                             reset_count <= 0;
                             delay_count <= 0;
@@ -328,128 +310,80 @@ begin
                         if delay_count = POST_RESET_CYCLES - 1 then
                             delay_count   <= 0;
                             command_index <= INIT_COMMANDS'low;
-                            state         <= INIT_ISSUE;
+                            state         <= COMMAND_ISSUE;
                         else
                             delay_count <= delay_count + 1;
                         end if;
 
-                    when INIT_ISSUE =>
+                    when COMMAND_ISSUE =>
                         if cmd_ready = '1' then
-                            state <= INIT_WAIT;
+                            state <= COMMAND_WAIT;
                         end if;
 
-                    when INIT_WAIT =>
-                        if INIT_COMMANDS(command_index).kind = OP_WRITE then
+                    when COMMAND_WAIT =>
+                        if current_command.kind = COMMAND_WRITE then
                             if cmd_ready = '1' and master_busy = '0' then
-                                if command_index = INIT_COMMANDS'high then
-                                    config_done_i <= '1';
-                                    poll_count    <= 0;
-                                    state         <= POLL_DELAY;
-                                else
-                                    command_index <= command_index + 1;
-                                    state         <= INIT_ISSUE;
-                                end if;
+                                advance_command;
                             end if;
                         elsif read_valid = '1' then
-                            if read_data(15) = '0' then
-                                if INIT_COMMANDS(command_index).kind =
-                                   OP_READ_RESET then
-                                    command_index <= command_index + 1;
-                                    reset_reads   <= 0;
-                                    state         <= INIT_ISSUE;
-                                elsif read_data(14) = '0' then
-                                    command_index <= command_index + 1;
-                                    reset_reads   <= 0;
-                                    state         <= INIT_ISSUE;
-                                elsif reset_reads = RESET_READ_LIMIT - 1 then
-                                    error_i       <= '1';
+                            if current_command.clear_mask /= x"0000" and
+                               (read_data and current_command.clear_mask) /=
+                               x"0000" then
+                                if reset_reads = RESET_READ_LIMIT - 1 then
+                                    sticky_error  <= '1';
                                     reset_count   <= 0;
                                     reset_reads   <= 0;
                                     command_index <= INIT_COMMANDS'low;
                                     state         <= RESET_HOLD;
                                 else
                                     reset_reads <= reset_reads + 1;
-                                    state       <= INIT_ISSUE;
+                                    state       <= COMMAND_ISSUE;
                                 end if;
-                            elsif reset_reads = RESET_READ_LIMIT - 1 then
-                                -- A missing/unresponsive PHY also reaches this
-                                -- path because MDIO reads back as non-zero.
-                                error_i       <= '1';
-                                reset_count   <= 0;
-                                reset_reads   <= 0;
-                                command_index <= INIT_COMMANDS'low;
-                                state         <= RESET_HOLD;
                             else
-                                reset_reads <= reset_reads + 1;
-                                -- Repeat the reset-register read until reset
-                                -- clears.
-                                state <= INIT_ISSUE;
+                                case current_command.target is
+                                    when CAP_NONE =>
+                                        null;
+                                    when CAP_BMSR =>
+                                        diagnostics_i.bmsr <= read_data;
+                                        link_up_i <= read_data(2);
+                                    when CAP_PHYSTS =>
+                                        diagnostics_i.physts <= read_data;
+                                    when CAP_PHYCR =>
+                                        diagnostics_i.phycr <= read_data;
+                                    when CAP_CFG1 =>
+                                        diagnostics_i.cfg1 <= read_data;
+                                    when CAP_BMCR =>
+                                        diagnostics_i.bmcr <= read_data;
+                                    when CAP_ANAR =>
+                                        diagnostics_i.anar <= read_data;
+                                    when CAP_ANLPAR =>
+                                        diagnostics_i.anlpar <= read_data;
+                                    when CAP_ANER =>
+                                        diagnostics_i.aner <= read_data;
+                                    when CAP_STS1 =>
+                                        diagnostics_i.sts1 <= read_data;
+                                    when CAP_RECR =>
+                                        diagnostics_i.recr <= read_data;
+                                    when CAP_CFG4 =>
+                                        diagnostics_i.cfg4 <= read_data;
+                                    when CAP_STRAP2 =>
+                                        diagnostics_i.strap_sts2 <= read_data;
+                                    when CAP_ANA_LD =>
+                                        diagnostics_i.ana_ld_data_ctrl <=
+                                            read_data;
+                                end case;
+                                advance_command;
                             end if;
                         end if;
 
                     when POLL_DELAY =>
                         if poll_count = POLL_CYCLES - 1 then
-                            poll_count <= 0;
-                            poll_index <= POLL_COMMANDS'low;
-                            state      <= POLL_ISSUE;
+                            poll_count    <= 0;
+                            command_index <= POLL_COMMANDS'low;
+                            phase         <= POLLING;
+                            state         <= COMMAND_ISSUE;
                         else
                             poll_count <= poll_count + 1;
-                        end if;
-
-                    when POLL_ISSUE =>
-                        if cmd_ready = '1' then
-                            state <= POLL_WAIT;
-                        end if;
-
-                    when POLL_WAIT =>
-                        if POLL_COMMANDS(poll_index).kind = OP_WRITE then
-                            if cmd_ready = '1' and master_busy = '0' then
-                                if poll_index = POLL_COMMANDS'high then
-                                    state <= POLL_DELAY;
-                                else
-                                    poll_index <= poll_index + 1;
-                                    state      <= POLL_ISSUE;
-                                end if;
-                            end if;
-                        elsif read_valid = '1' then
-                            case POLL_COMMANDS(poll_index).target is
-                                when CAP_NONE =>
-                                    null;
-                                when CAP_BMSR =>
-                                    phy_bmsr_i <= read_data;
-                                    link_up_i  <= read_data(2);
-                                when CAP_PHYSTS =>
-                                    phy_status_i <= read_data;
-                                when CAP_PHYCR =>
-                                    phy_control_i <= read_data;
-                                when CAP_CFG1 =>
-                                    phy_cfg1_i <= read_data;
-                                when CAP_BMCR =>
-                                    phy_bmcr_i <= read_data;
-                                when CAP_ANAR =>
-                                    phy_anar_i <= read_data;
-                                when CAP_ANLPAR =>
-                                    phy_anlpar_i <= read_data;
-                                when CAP_ANER =>
-                                    phy_aner_i <= read_data;
-                                when CAP_STS1 =>
-                                    phy_sts1_i <= read_data;
-                                when CAP_RECR =>
-                                    phy_recr_i <= read_data;
-                                when CAP_CFG4 =>
-                                    phy_cfg4_i <= read_data;
-                                when CAP_STRAP2 =>
-                                    phy_strap2_i <= read_data;
-                                when CAP_ANA_LD =>
-                                    phy_ana_ld_i <= read_data;
-                            end case;
-
-                            if poll_index = POLL_COMMANDS'high then
-                                state <= POLL_DELAY;
-                            else
-                                poll_index <= poll_index + 1;
-                                state      <= POLL_ISSUE;
-                            end if;
                         end if;
                 end case;
             end if;

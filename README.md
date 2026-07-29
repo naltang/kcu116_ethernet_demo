@@ -78,6 +78,11 @@ build/kcu116_ethernet_demo.xpr
 
 `create_project.tcl` recreates the project and regenerates the PCS/PMA IP.
 Generated project and IP files are intentionally not stored in the repository.
+Pass an optional build-directory argument when an independent build is useful:
+
+```sh
+vivado -mode batch -source create_project.tcl -tclargs build/validation
+```
 
 ## Quick start
 
@@ -372,13 +377,17 @@ PHY, or host configuration does not hide the original fault.
 
 | Simulation top | Purpose | Expected note |
 |---|---|---|
-| `tb_udp_to_gmii` | Complete GMII byte stream, IPv4/UDP checksums, padding, Ethernet FCS, payload latching, and 100-Mb/s-style client clock enable | `Latched UDP payload-to-GMII frame verified` |
-| `tb_ethernet_statistics` | Sent, valid-receive, errored-receive, inactive-client, and 16-bit rollover behavior | `Ethernet statistics counters verified` |
+| `tb_udp_to_gmii` | Two complete GMII frames, IPv4/UDP checksums, padding, Ethernet FCS, payload latching, and 100-Mb/s-style client clock enable | `Two deterministic UDP-to-GMII frames verified` |
+| `tb_udp_to_gmii_no_padding` | Continuous 1-Gb/s-style enable, an exactly minimum-size unpadded frame, and reset during transmission | `Continuous-enable, no-padding, and reset behavior verified` |
+| `tb_ethernet_statistics` | Sent, valid-receive, errored-receive, carrier-extension filtering, disabled cycles, inactive clients, and rollover behavior | `Ethernet statistics counters verified` |
 | `tb_dp83867_sgmii_init` | DP83867 MDIO configuration, link polling, and diagnostic-register polling | `DP83867 diagnostic-register polling verified` |
+| `tb_mdio_master` | Clause-22 read/write transactions and response backpressure | `MDIO master read, write, and backpressure verified` |
+| `tb_uart_status` | UART bit timing, the complete fixed status format, and coherent line snapshots | `UART byte timing, fixed line format, and snapshot verified` |
 
-`source/mdio_slave.vhd` is the PHY model used by
-`tb_dp83867_sgmii_init`. Simulation-only sources are excluded from synthesis
-and implementation. The default simulation top is `tb_udp_to_gmii`.
+`source/mdio_slave_bfm.vhd` implements the generic Clause-22 wire protocol.
+`source/mdio_slave.vhd` adds the DP83867 register behavior used by the PHY and
+MDIO-master tests. Simulation-only sources are excluded from synthesis and
+implementation. The default simulation top is `tb_udp_to_gmii`.
 
 ### Vivado GUI
 
@@ -386,22 +395,21 @@ and implementation. The default simulation top is `tb_udp_to_gmii`.
 2. Under **Simulation Sources**, right-click the desired testbench and select
    **Set as Top**.
 3. Select **Flow Navigator > Simulation > Run Behavioral Simulation**.
-4. For `tb_udp_to_gmii`, run for `10 us` and stop after its verification note
-   appears. For either self-terminating testbench, select **Run All**.
+4. Select **Run All**. Every testbench stops after its checks pass and contains
+   a watchdog that fails a stalled simulation.
 
 ### Vivado Tcl console
 
-Run the three testbenches:
+Run all testbenches:
 
 ```tcl
-set_property top tb_udp_to_gmii [get_filesets sim_1]
-launch_simulation -simset sim_1 -mode behavioral
-run 10 us
-close_sim
-
 foreach simulation_top {
+    tb_udp_to_gmii
+    tb_udp_to_gmii_no_padding
     tb_ethernet_statistics
     tb_dp83867_sgmii_init
+    tb_mdio_master
+    tb_uart_status
 } {
     set_property top $simulation_top [get_filesets sim_1]
     launch_simulation -simset sim_1 -mode behavioral
@@ -435,10 +443,19 @@ DP83867 diagnostic-register polling verified
   oscillator.
 - `status_vector(11 downto 10)` controls PCS rate adaptation.
 - `sgmii_clk_en` advances the GMII transmitter at the negotiated byte rate.
-- The sticky GMII receive-error latch excludes the normal carrier-extension
-  indication (`RX_DV=0`, `RX_ER=1`, `RXD=0x0F`).
+- `ethernet_statistics` filters the normal carrier-extension indication
+  (`RX_DV=0`, `RX_ER=1`, `RXD=0x0F`) before counting errors or driving the
+  sticky error LED event.
 - The 16-bit Ethernet statistics use modulo arithmetic and cross into the UART
   clock domain in Gray code.
+- The multi-bit PCS status uses a request/acknowledge snapshot handshake so one
+  UART line cannot contain a mixture of two PCS status updates.
+- The UART formatter snapshots all fields once per line and streams individual
+  bytes to the transmitter instead of latching a 232-byte vector.
+- The UDP transmitter stores one accepted payload snapshot and addresses it by
+  byte or word index for checksum and serialization.
+- The generated PCS/PMA core is isolated behind `pcs_pma_wrapper`, keeping its
+  vendor-specific port list out of the application top level.
 - `signal_detect` is tied high because the on-board LVDS connection has no
   separate loss-of-signal input.
 - `status_vector(0)` gates frame transmission until SGMII auto-negotiation is
