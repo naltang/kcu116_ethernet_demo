@@ -110,7 +110,7 @@ set_property -dict [list \
     CONFIG.EMAC_IF_TEMAC {TEMAC} \
     CONFIG.SupportLevel {Include_Shared_Logic_in_Core} \
     CONFIG.LvdsRefClk {625} \
-    CONFIG.EnableAsyncSGMII {false} \
+    CONFIG.EnableAsyncSGMII {true} \
     CONFIG.ClockSelection {Sync} \
     CONFIG.Tx_In_Upper_Nibble {0} \
     CONFIG.TxLane0_Placement {DIFF_PAIR_2} \

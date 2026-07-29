@@ -33,6 +33,12 @@ set_property IOSTANDARD LVDS [get_ports {
     phy1_sgmii_out_p phy1_sgmii_out_n
     phy1_sgmii_clk_p phy1_sgmii_clk_n
 }]
+## The receive data and 625-MHz clock are AC-coupled and have no external
+## differential termination at the FPGA, so terminate them internally.
+set_property DIFF_TERM_ADV TERM_100 [get_ports {
+    phy1_sgmii_in_p phy1_sgmii_in_n
+    phy1_sgmii_clk_p phy1_sgmii_clk_n
+}]
 
 ## User LEDs
 set_property PACKAGE_PIN C9  [get_ports gpio_led_0]

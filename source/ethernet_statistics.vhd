@@ -14,11 +14,11 @@ entity ethernet_statistics is
         active           : in  std_logic;
         clk_enable       : in  std_logic;
         frame_sent       : in  std_logic;
-        gmii_rxd          : in  std_logic_vector(7 downto 0);
+        gmii_rxd         : in  std_logic_vector(7 downto 0);
         rx_dv            : in  std_logic;
-        rx_er             : in  std_logic;
-        recv_started      : out std_logic;
-        recv_error_event  : out std_logic;
+        rx_er            : in  std_logic;
+        recv_started     : out std_logic;
+        recv_error_event : out std_logic;
         frame_sent_count : out unsigned(COUNTER_WIDTH - 1 downto 0);
         recv_count       : out unsigned(COUNTER_WIDTH - 1 downto 0);
         recv_error_count : out unsigned(COUNTER_WIDTH - 1 downto 0)
