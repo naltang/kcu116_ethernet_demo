@@ -41,8 +41,8 @@ begin
     frame_sent_count <= frame_sent_count_i;
     recv_count       <= recv_count_i;
     recv_error_count <= recv_error_count_i;
-    rx_error <= rx_er when not (
-        rx_er = '1' and rx_dv = '0' and gmii_rxd = x"0F") else '0';
+    rx_error <= '0' when (rx_er = '1' and rx_dv = '0' and gmii_rxd = x"0F")
+                else rx_er;
 
     count_events : process(clk)
     begin
