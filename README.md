@@ -485,6 +485,8 @@ DP83867 diagnostic-register polling verified
 
 - AMD PG047, *1G/2.5G Ethernet PCS/PMA or SGMII LogiCORE IP Product Guide*:
   <https://docs.amd.com/r/en-US/pg047-gig-eth-pcs-pma>
+- AMD UG1239, *KCU116 Board User Guide*:
+  <https://docs.amd.com/v/u/en-US/ug1239-kcu116-eval-bd>
 - AMD UG1224, *VCU118 Evaluation Board User Guide*:
   <https://docs.amd.com/v/u/en-US/ug1224-vcu118-eval-bd>
 - AMD RDF0400, *VCU118 Master XDC* (in the XTP450 board archive):
