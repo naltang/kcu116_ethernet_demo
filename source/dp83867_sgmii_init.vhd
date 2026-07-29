@@ -3,7 +3,7 @@ use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 use work.dp83867_pkg.all;
 
--- Initializes the KCU116 on-board TI DP83867 for six-wire SGMII.
+-- Initializes the KCU116 or VCU118 on-board TI DP83867 for six-wire SGMII.
 --
 -- The register sequence follows AMD Answer Record 69494.  Clause-22 indirect
 -- addressing through REGCR/ADDAR is used for the DP83867 extended registers.
@@ -93,7 +93,7 @@ architecture rtl of dp83867_sgmii_init is
         write_command(DP83867_REG_BMCR, x"8000"),
         read_command(DP83867_REG_BMCR, clear_mask => x"8000"),
 
-        -- Correct the KCU116 strap-derived copper settings before starting
+        -- Establish the board-independent copper settings before starting
         -- Auto-Negotiation.  FORCE_LINK_GOOD must be clear in PHYCR, while
         -- SGMII and automatic MDI/MDIX remain enabled.  CFG1 uses automatic
         -- leader/follower resolution and advertises both 1000BASE-T modes.
@@ -118,7 +118,7 @@ architecture rtl of dp83867_sgmii_init is
         write_command(DP83867_REG_REGCR, x"401F"),
         extended_data_write(x"0053"),
 
-        -- CFG4 0x0031: KCU116 RX_CTRL strap workaround.
+        -- CFG4 0x0031: KCU116/VCU118 RX_CTRL strap workaround.
         -- Clear INT_TST_MODE_1 (bit 7); keep the documented default values
         -- for the SGMII AN timer and reserved fields.
         write_command(DP83867_REG_REGCR, x"001F"),

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Continuously receive and print UDP datagrams from the KCU116 example."""
+"""Continuously receive and print UDP datagrams from the FPGA board demo."""
 
 import argparse
 import datetime
@@ -15,7 +15,7 @@ MAX_DATAGRAM_BYTES = 65535
 def parse_args():
     parser = argparse.ArgumentParser(
         description=(
-            "Receive and print UDP packets from the KCU116 Ethernet demo."
+            "Receive and print UDP packets from the FPGA Ethernet demo."
         )
     )
     parser.add_argument(

@@ -7,13 +7,13 @@ use work.debug_status_pkg.all;
 library unisim;
 use unisim.vcomponents.all;
 
-entity kcu116_ethernet_demo is
+entity ethernet_demo is
     generic (
         CLOCK_FREQ_HZ            : positive := 125_000_000;
         FRAME_PERIOD_CYCLES      : positive := 125_000_000;
         SOURCE_MAC_ADDRESS       : std_logic_vector(47 downto 0) := x"020000000001";
         DESTINATION_MAC_ADDRESS  : std_logic_vector(47 downto 0) := x"FFFFFFFFFFFF";
-        SOURCE_IP_ADDRESS        : std_logic_vector(31 downto 0) := x"01020374";
+        SOURCE_IP_ADDRESS        : std_logic_vector(31 downto 0) := x"01020364";
         DESTINATION_IP_ADDRESS   : std_logic_vector(31 downto 0) := x"01020304";
         SOURCE_UDP_PORT          : natural range 0 to 65535 := 1234;
         DESTINATION_UDP_PORT     : natural range 0 to 65535 := 5678
@@ -23,7 +23,7 @@ entity kcu116_ethernet_demo is
         clk_125_n : in  std_logic;
         cpu_reset : in  std_logic;
 
-        usb_uart_rx_fpga_tx_ls : out std_logic;
+        uart_tx : out std_logic;
 
         phy1_pdwn_b_i_int_b_o : out std_logic;
         phy1_reset_b          : out std_logic;
@@ -46,11 +46,12 @@ entity kcu116_ethernet_demo is
         gpio_led_6 : out std_logic;
         gpio_led_7 : out std_logic
     );
-end entity kcu116_ethernet_demo;
+end entity ethernet_demo;
 
-architecture rtl of kcu116_ethernet_demo is
-    constant UDP_PAYLOAD : std_logic_vector(26 * 8 - 1 downto 0) :=
-        x"48656C6C6F20776F726C6421202D2D66726F6D204B4355313136";
+architecture rtl of ethernet_demo is
+    constant UDP_PAYLOAD : std_logic_vector(34 * 8 - 1 downto 0) :=
+        x"48656C6C6F20776F726C6421202D2D2066726F6D20616E204650474120626F617264";
+		-- This is a hex string of "Hello world! -- from an FPGA board"
 
     signal board_clk125 : std_logic;
     signal board_reset  : std_logic;
@@ -288,7 +289,7 @@ begin
             data_in    => uart_data,
             data_valid => uart_valid,
             data_ready => uart_ready,
-            tx_out     => usb_uart_rx_fpga_tx_ls
+            tx_out     => uart_tx
         );
 
     periodic_sender : process(pcs_clk125)

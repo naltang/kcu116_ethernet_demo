@@ -1,12 +1,14 @@
-# KCU116 VHDL Ethernet demonstration
+# KCU116/VCU118 VHDL Ethernet demonstration
 
 This FPGA-only demonstration transmits one valid UDP broadcast per second
-through the KCU116 on-board DP83867 PHY. It also monitors received Ethernet
+through the on-board DP83867 PHY on either a KCU116 or a VCU118 Rev 2.0+
+evaluation board. The VHDL sources are shared; the project script selects the
+FPGA part and board constraints. The design also monitors received Ethernet
 frames, but it does not implement receive protocol processing.
 
 > **Important:** The design does not contain an ARP, ICMP, or UDP responder.
 > The board therefore does not answer ARP requests or ping, even when both the
-> copper and SGMII links are healthy. The source address `1.2.3.116` identifies
+> copper and SGMII links are healthy. The source address `1.2.3.100` identifies
 > transmitted IPv4 datagrams; it is not a complete network stack. Use the LEDs,
 > UART status report, or packet capture to check the board.
 
@@ -26,9 +28,9 @@ MDIO controller, receive statistics, and UART formatter are VHDL.
 
 ## Requirements
 
-- KCU116 evaluation board
-- Vivado with the `gig_ethernet_pcs_pma` IP installed and licensed for
-  synthesis
+- KCU116 evaluation board or VCU118 Rev 2.0+ evaluation board
+- Vivado with a license covering the selected FPGA device
+- The `gig_ethernet_pcs_pma` IP installed and licensed for synthesis
 - A 1-Gb/s-capable Ethernet switch or a directly connected host
 - Python 3 for the optional host utilities
 
@@ -58,53 +60,66 @@ The installation path and version may differ.
 
 ### Generate the project and bitstream
 
-From the repository root:
+The board argument is mandatory. From the repository root, build exactly one
+target:
 
 ```sh
-vivado -mode batch -source create_project.tcl
+vivado -mode batch -source create_project.tcl -tclargs kcu116
+vivado -mode batch -source create_project.tcl -tclargs vcu118
 ```
 
-The resulting programming file is:
+The resulting projects and programming files are:
 
 ```text
-build/kcu116_ethernet_demo.runs/impl_1/kcu116_ethernet_demo.bit
-```
+build_kcu116/kcu116_ethernet_demo.xpr
+build_kcu116/kcu116_ethernet_demo.runs/impl_1/ethernet_demo.bit
 
-The generated Vivado project can be opened at:
-
-```text
-build/kcu116_ethernet_demo.xpr
+build_vcu118/vcu118_ethernet_demo.xpr
+build_vcu118/vcu118_ethernet_demo.runs/impl_1/ethernet_demo.bit
 ```
 
 `create_project.tcl` recreates the project and regenerates the PCS/PMA IP.
 Generated project and IP files are intentionally not stored in the repository.
-Pass an optional build-directory argument when an independent build is useful:
+Running the script without a board argument, with more than one argument, or
+with an unsupported board name prints the usage message and exits without
+creating a project.
 
-```sh
-vivado -mode batch -source create_project.tcl -tclargs build/validation
-```
+Both targets synthesize the same `source/ethernet_demo.vhd` top level and
+supporting VHDL. Board selection changes only the generated project:
+
+| Target | FPGA part | Constraints | Build directory |
+|---|---|---|---|
+| `kcu116` | `xcku5p-ffvb676-2-e` | `constraints/kcu116.xdc` | `build_kcu116/` |
+| `vcu118` | `xcvu9p-flga2104-2L-e` | `constraints/vcu118.xdc` | `build_vcu118/` |
+
+The VCU118 constraints target Rev 2.0 and later boards. Pin assignments and
+I/O standards were taken from AMD's official VCU118 Rev 2.0 master XDC.
+Both targets intentionally use the same MAC and IPv4 addresses. Do not connect
+a KCU116 and VCU118 running this design to the same network at the same time.
 
 ## Quick start
 
-1. Connect the KCU116 RJ45 port to a host or a 1-Gb/s-capable switch.
-2. Program the generated bitstream.
-3. Assign the receiving host an address in `1.2.3.0/24`, such as `1.2.3.4`,
+1. Build the target selected above.
+2. Connect that board's RJ45 port to a host or a 1-Gb/s-capable switch.
+3. Program the matching bitstream. A KCU116 bitstream cannot be used on a
+   VCU118, or vice versa.
+4. Assign the receiving host an address in `1.2.3.0/24`, such as `1.2.3.4`,
    with subnet mask `255.255.255.0`. No gateway is required.
-4. Start the UDP receiver:
+5. Start the UDP receiver:
 
    ```sh
    python3 recv_udp.py
    ```
 
    On Windows, `py recv_udp.py` can be used instead.
-5. Confirm that LEDs 0, 1, 2, and 7 are on. LED 3 should change state once per
+6. Confirm that LEDs 0, 1, 2, and 7 are on. LED 3 should change state once per
    second.
-6. Wait for the transmitted payload to appear:
+7. Wait for the transmitted payload to appear:
 
    ```text
-   [2026-07-25T12:34:56+09:00] 1.2.3.116:1234 - 26 bytes
-     text: 'Hello world! --from KCU116'
-     hex : 48 65 6C 6C 6F 20 77 6F 72 6C 64 21 20 2D 2D 66 72 6F 6D 20 4B 43 55 31 31 36
+   [2026-07-25T12:34:56+09:00] 1.2.3.100:1234 - 34 bytes
+     text: 'Hello world! -- from an FPGA board'
+     hex : 48 65 6C 6C 6F 20 77 6F 72 6C 64 21 20 2D 2D 20 66 72 6F 6D 20 61 6E 20 46 50 47 41 20 62 6F 61 72 64
    ```
 
 If no datagram appears, check the [troubleshooting](#troubleshooting) section
@@ -161,7 +176,7 @@ To exercise the FPGA receive counter instead, the UDP port is unimportant
 because the FPGA counts Ethernet frames without parsing their contents:
 
 ```sh
-python3 send_udp.py "counter test" --destination 1.2.3.116 --port 1234 --count 100
+python3 send_udp.py "counter test" --destination 1.2.3.100 --port 1234 --count 100
 ```
 
 `--destination` is a subnet selector, not the transmitted destination address.
@@ -198,21 +213,23 @@ The top-level demonstration transmits:
 |---|---|
 | Destination MAC | `ff:ff:ff:ff:ff:ff` |
 | Source MAC | `02:00:00:00:00:01` |
-| Source IPv4 | `1.2.3.116` |
+| Source IPv4 | `1.2.3.100` |
 | Destination IPv4 | `1.2.3.4` |
 | UDP source port | `1234` |
 | UDP destination port | `5678` |
-| Payload | `Hello world! --from KCU116` |
+| Payload | `Hello world! -- from an FPGA board` |
 
 `udp_to_gmii` provides the following generics. The address and port generics
-are also exposed by `kcu116_ethernet_demo`.
+are also exposed by the board-neutral `ethernet_demo` top level. The module's
+generic payload default remains 26 bytes; the demonstration top level supplies
+the 34-byte text shown above.
 
 | Generic | Default |
 |---|---|
 | `UDP_PAYLOAD_BYTE_COUNT` | `26` (maximum `1472`) |
 | `SOURCE_MAC_ADDRESS` | `x"020000000001"` |
 | `DESTINATION_MAC_ADDRESS` | `x"FFFFFFFFFFFF"` |
-| `SOURCE_IP_ADDRESS` | `x"01020374"` |
+| `SOURCE_IP_ADDRESS` | `x"01020364"` |
 | `DESTINATION_IP_ADDRESS` | `x"01020304"` |
 | `SOURCE_UDP_PORT` | `1234` |
 | `DESTINATION_UDP_PORT` | `5678` |
@@ -250,8 +267,8 @@ carrier-extension indication.
 
 ## UART status
 
-The FPGA continuously transmits a textual status line through the KCU116
-USB-UART bridge at 9600 baud, 8 data bits, no parity, and one stop bit:
+The FPGA continuously transmits a textual status line through the selected
+board's USB-UART bridge at 9600 baud, 8 data bits, no parity, and one stop bit:
 
 ```text
 FRAME(S=0xXXXX R=0xXXXX E=0xXXXX) PCS_STATUS=0xXXXX PHYSTS=0xXXXX PHYCR=0xXXXX CFG1=0xXXXX BMCR=0xXXXX BMSR=0xXXXX ANAR=0xXXXX ANLPAR=0xXXXX ANER=0xXXXX STS1=0xXXXX RECR=0xXXXX CFG4=0xXXXX STRAP_STS2=0xXXXX ANA_LD_DATA_CTRL=0xXXXX
@@ -285,7 +302,7 @@ Each small datagram generated by `send_udp.py` normally produces one Ethernet
 frame counted by `R`. For example:
 
 ```sh
-python3 send_udp.py "test" --destination 1.2.3.116 --count 100
+python3 send_udp.py "test" --destination 1.2.3.100 --count 100
 ```
 
 Normally, the modulo-16-bit increase should be at least 100:
@@ -322,7 +339,7 @@ This table is the canonical reference for the remaining UART fields:
 | `STS1` | DP83867 status register 1 | Typically `0x7800` |
 | `RECR` | DP83867 Clause-22 receiver error counter at `0x15` | Normally `0x0000` |
 | `CFG4` | DP83867 configuration register 4 | `0x1030` |
-| `STRAP_STS2` | DP83867 strap status register 2 | Typically `0x0150` on the KCU116 |
+| `STRAP_STS2` | DP83867 strap status register 2 | Board strap status; `0x0150` is typical on the KCU116 |
 | `ANA_LD_DATA_CTRL` | DP83867 extended register `0x00DD` | `0x0200`; `0x000F` indicates disabled MDI transmitters |
 
 `PHYSTS` is polled after the double read of `BMSR`. Partner-dependent fields
@@ -341,7 +358,7 @@ receive errors detected by the DP83867 on its copper side and saturates at
 
 Before changing the PCS/PMA configuration, constraints, or host software:
 
-1. Open the KCU116 USB-UART port at 9600 baud, 8-N-1.
+1. Open the selected board's FPGA USB-UART port at 9600 baud, 8-N-1.
 2. Wait for PHY initialization to finish.
 3. Save several complete UART status lines.
 4. Compare the observed LEDs and fields with the table below.
@@ -391,7 +408,8 @@ implementation. The default simulation top is `tb_udp_to_gmii`.
 
 ### Vivado GUI
 
-1. Open `build/kcu116_ethernet_demo.xpr`.
+1. Open `build_kcu116/kcu116_ethernet_demo.xpr` or
+   `build_vcu118/vcu118_ethernet_demo.xpr`.
 2. Under **Simulation Sources**, right-click the desired testbench and select
    **Set as Top**.
 3. Select **Flow Navigator > Simulation > Run Behavioral Simulation**.
@@ -467,6 +485,10 @@ DP83867 diagnostic-register polling verified
 
 - AMD PG047, *1G/2.5G Ethernet PCS/PMA or SGMII LogiCORE IP Product Guide*:
   <https://docs.amd.com/r/en-US/pg047-gig-eth-pcs-pma>
+- AMD UG1224, *VCU118 Evaluation Board User Guide*:
+  <https://docs.amd.com/v/u/en-US/ug1224-vcu118-eval-bd>
+- AMD RDF0400, *VCU118 Master XDC* (in the XTP450 board archive):
+  <https://docs.amd.com/v/u/en-US/VCU118-Schematics-XTP450>
 - TI DP83867 datasheet:
   <https://www.ti.com/lit/ds/symlink/dp83867e.pdf>
 - AMD Answer Record 69494, KCU116/VCU118 DP83867 SGMII bring-up

@@ -9,8 +9,8 @@ set_property PACKAGE_PIN B9 [get_ports cpu_reset]
 set_property IOSTANDARD LVCMOS33 [get_ports cpu_reset]
 
 ## FPGA transmit side of the KCU116 USB-UART bridge
-set_property PACKAGE_PIN W13 [get_ports usb_uart_rx_fpga_tx_ls]
-set_property IOSTANDARD LVCMOS18 [get_ports usb_uart_rx_fpga_tx_ls]
+set_property PACKAGE_PIN W13 [get_ports uart_tx]
+set_property IOSTANDARD LVCMOS18 [get_ports uart_tx]
 
 ## On-board TI DP83867 management and control
 set_property PACKAGE_PIN R25 [get_ports phy1_pdwn_b_i_int_b_o]

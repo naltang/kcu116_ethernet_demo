@@ -2,7 +2,7 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
--- Minimal transmit-only Ethernet/IPv4/UDP MAC used by the KCU116 example.
+-- Minimal transmit-only Ethernet/IPv4/UDP MAC used by the board demo.
 --
 -- UDP_VALID/UDP_READY use a standard valid-ready handshake. UDP_PAYLOAD is
 -- latched on a rising clock edge where both are high, and its most-significant
@@ -13,7 +13,7 @@ entity udp_to_gmii is
         UDP_PAYLOAD_BYTE_COUNT   : positive range 1 to 1472 := 26;
         SOURCE_MAC_ADDRESS       : std_logic_vector(47 downto 0) := x"020000000001";
         DESTINATION_MAC_ADDRESS  : std_logic_vector(47 downto 0) := x"FFFFFFFFFFFF";
-        SOURCE_IP_ADDRESS        : std_logic_vector(31 downto 0) := x"01020374";
+        SOURCE_IP_ADDRESS        : std_logic_vector(31 downto 0) := x"01020364";
         DESTINATION_IP_ADDRESS   : std_logic_vector(31 downto 0) := x"01020304";
         SOURCE_UDP_PORT          : natural range 0 to 65535 := 1234;
         DESTINATION_UDP_PORT     : natural range 0 to 65535 := 5678

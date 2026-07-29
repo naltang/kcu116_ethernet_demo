@@ -1,4 +1,5 @@
-/build/
+/build_kcu116/
+/build_vcu118/
 .Xil/
 *.jou
 *.log

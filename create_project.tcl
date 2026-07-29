@@ -1,21 +1,50 @@
-# Recreate and build the KCU116 VHDL SGMII/UDP demonstration.
+# Recreate and build the KCU116/VCU118 VHDL SGMII/UDP demonstration.
 #
 # Run from any directory:
-#   vivado -mode batch -source create_project.tcl
-# An optional first Tcl argument selects a different generated build directory.
+#   vivado -mode batch -source create_project.tcl -tclargs kcu116
+#   vivado -mode batch -source create_project.tcl -tclargs vcu118
 #
-# The script creates build/kcu116_ethernet_demo, generates the licensed
-# Gigabit Ethernet PCS/PMA IP, and builds a programming bitstream.
+# The board argument is mandatory. The script creates build_<board>, generates
+# the licensed Gigabit Ethernet PCS/PMA IP for that FPGA, and builds a
+# programming bitstream.
 
 set script_dir [file normalize [file dirname [info script]]]
 set source_dir [file normalize [file join $script_dir source]]
-if {$argc > 0} {
-    set build_dir [file normalize [lindex $argv 0]]
-} else {
-    set build_dir [file normalize [file join $script_dir build]]
+
+proc print_usage {} {
+    puts stderr "Usage:"
+    puts stderr "  vivado -mode batch -source create_project.tcl -tclargs kcu116"
+    puts stderr "  vivado -mode batch -source create_project.tcl -tclargs vcu118"
 }
-set project_name kcu116_ethernet_demo
-set part_name xcku5p-ffvb676-2-e
+
+if {$argc != 1} {
+    puts stderr "ERROR: Select exactly one target board."
+    print_usage
+    exit 2
+}
+
+set board_name [string tolower [lindex $argv 0]]
+switch -- $board_name {
+    kcu116 {
+        set project_name kcu116_ethernet_demo
+        set part_name xcku5p-ffvb676-2-e
+        set board_part_pattern xilinx.com:kcu116:part0:*
+        set constraint_file [file join $script_dir constraints kcu116.xdc]
+    }
+    vcu118 {
+        set project_name vcu118_ethernet_demo
+        set part_name xcvu9p-flga2104-2L-e
+        set board_part_pattern xilinx.com:vcu118:part0:*
+        set constraint_file [file join $script_dir constraints vcu118.xdc]
+    }
+    default {
+        puts stderr "ERROR: Unsupported target board '$board_name'."
+        print_usage
+        exit 2
+    }
+}
+
+set build_dir [file normalize [file join $script_dir build_$board_name]]
 
 file mkdir $build_dir
 create_project -force $project_name $build_dir -part $part_name
@@ -23,11 +52,11 @@ set_property target_language VHDL [current_project]
 set_property simulator_language Mixed [current_project]
 set_property default_lib xil_defaultlib [current_project]
 
-# The design uses explicit package pins, so a board-part installation is not
-# required.  Set it when available to improve board-aware IP validation.
-set kcu116_parts [get_board_parts -quiet xilinx.com:kcu116:part0:*]
-if {[llength $kcu116_parts] > 0} {
-    set_property board_part [lindex $kcu116_parts end] [current_project]
+# Explicit package pins make a board-part installation optional. Set the
+# matching board part when available to improve board-aware IP validation.
+set matching_board_parts [get_board_parts -quiet $board_part_pattern]
+if {[llength $matching_board_parts] > 0} {
+    set_property board_part [lindex $matching_board_parts end] [current_project]
 }
 
 add_files -norecurse [list \
@@ -43,7 +72,7 @@ add_files -norecurse [list \
     [file join $source_dir udp_to_gmii.vhd] \
     [file join $source_dir ethernet_statistics.vhd] \
     [file join $source_dir pcs_pma_wrapper.vhd] \
-    [file join $source_dir kcu116_ethernet_demo.vhd]]
+    [file join $source_dir ethernet_demo.vhd]]
 set_property file_type {VHDL 2008} [get_files *.vhd]
 
 set simulation_files [list \
@@ -60,8 +89,7 @@ set simulation_sources [get_files -of_objects [get_filesets sim_1]]
 set_property file_type {VHDL 2008} $simulation_sources
 set_property used_in {simulation} $simulation_sources
 
-add_files -fileset constrs_1 -norecurse \
-    [file join $script_dir kcu116_ethernet_demo.xdc]
+add_files -fileset constrs_1 -norecurse $constraint_file
 
 create_ip -name gig_ethernet_pcs_pma -vendor xilinx.com -library ip \
     -module_name gig_ethernet_pcs_pma_0
@@ -90,7 +118,7 @@ set_property -dict [list \
 ] [get_ips gig_ethernet_pcs_pma_0]
 
 generate_target all [get_ips gig_ethernet_pcs_pma_0]
-set_property top kcu116_ethernet_demo [get_filesets sources_1]
+set_property top ethernet_demo [get_filesets sources_1]
 set_property top tb_udp_to_gmii [get_filesets sim_1]
 update_compile_order -fileset sources_1
 update_compile_order -fileset sim_1
@@ -114,5 +142,6 @@ report_timing_summary -file [file join $build_dir timing_summary.rpt]
 report_utilization -file [file join $build_dir utilization.rpt]
 
 set bit_file [file join $build_dir ${project_name}.runs impl_1 \
-    kcu116_ethernet_demo.bit]
+    ethernet_demo.bit]
+puts "BOARD: $board_name"
 puts "BITSTREAM: $bit_file"
