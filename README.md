@@ -356,7 +356,8 @@ All four channels are applicable at 1 Gb/s. At 100 Mb/s only channel A is
 applicable, and at 10 Mb/s none of the four values is applicable. Interpret
 the values only while the copper link is up. The reported quartet is updated
 together after channel D is read, so one UART line cannot combine MSE values
-from two polling cycles.
+from two polling cycles. An inapplicable or unstable channel can report
+`0x7FFF`; do not classify that value by itself as a poor cable.
 
 `RECR` saturates at `0xFFFF`; an MDIO write clears it, while normal polling
 does not. The `FRAME` group's `E` counter and `RECR` measure errors at different
@@ -387,6 +388,7 @@ problems.
 | `PHYCR`, `CFG1`, or `CFG4` differs from its configured value | Configuration was not applied or was overwritten | Check the MDIO transaction sequence and reset history. Confirm `PHYCR=0x5848`, `CFG1=0x0300`, and `CFG4=0x1030`. |
 | `ANA_LD_DATA_CTRL=0x000F` | Copper MDI transmitters are disabled | Check the PHY strap state and indirect extended-register access. Confirm that initialization completes and the value returns to `0x0200`. |
 | `BMSR` link bit is clear and `PHYSTS` does not show link | Copper auto-negotiation or cabling | Try a known-good cable and 1-Gb/s switch port, allow negotiation to restart, and compare `ANAR` with `ANLPAR`. |
+| Link repeatedly changes between 1 Gb/s, 100 Mb/s, and down, or an applicable `MSE` value repeatedly exceeds `0x033B` | UTP cable, intermittent RJ45 contact, or another part of the copper path | Replace the UTP cable with a known-good Cat 5e or better cable first. Unplug and firmly reseat both RJ45 plugs, confirm that their latches hold, and inspect the plug and jack contacts. If the problem remains, try another switch port and inspect the other copper-side components. |
 | Copper link is up, but `PCS_STATUS` bit 0 and LED 2 stay low | SGMII-over-LVDS path | Verify the 625-MHz clock, SGMII RX/TX pin assignments, `PHYCR` SGMII enable, PCS reset, and any Vivado bitslice or location warnings. |
 | LEDs 0, 1, and 2 are on and LED 3 toggles, but no datagram is received | Host capture or network configuration | Capture on the correct interface, verify host address `1.2.3.4/24` and UDP port 5678, and check the host firewall. |
 | ARP lookup or ping fails | Expected transmit-only behavior | Do not change PHY or PCS settings. The design never responds to ARP or ICMP; use the LEDs and UART report instead. |
@@ -394,6 +396,38 @@ problems.
 | `R` increases by less than `send_udp.py --count` | Host, switch, or link loss | Verify the selected interface and broadcast address, capture the traffic at the sender, and remember that UDP does not guarantee delivery. |
 | LED 5 is on and `RECR` increases | Copper-side receive errors | Try a known-good cable and switch port, then compare `RECR` before and after controlled traffic. |
 | LED 5 is on but `RECR` remains unchanged | SGMII/PCS receive error | Reset or reprogram to clear LED 5, then probe `gmii_rx_er`, `gmii_rx_dv`, `gmii_rxd`, and `PCS_STATUS[6:4]`. Normal carrier extension is filtered; check SGMII signal integrity and the 625-MHz reference clock if another error pattern repeats. |
+
+### Bad UTP cable or intermittent RJ45 contact
+
+One captured bad-cable log repeatedly followed this shortened sequence:
+
+```text
+100 Mb/s link:   PCS_STATUS=0x348B PHYSTS=0x6C02 BMSR=0x796D
+Link lost:       PCS_STATUS=0x220B PHYSTS=0x0000 BMSR=0x7949
+1-Gb/s attempt:  PCS_STATUS=0x3A0B PHYSTS=0xA002 BMSR=0x7949 MSE(A=0x00E9 B=0x0085 C=0x274A D=0x2D20)
+Link lost again: PCS_STATUS=0x220B PHYSTS=0x0002 BMSR=0x7949
+```
+
+The PHY first established only 100 Mb/s, lost the copper link, briefly
+attempted 1 Gb/s with extremely poor channel-C and channel-D MSE values, and
+then lost the link again. `MSE(C)=0x274A` and `MSE(D)=0x2D20` are far above
+the poor-quality threshold of `0x033B`. The recurring `0x7FFF` values on
+channels B through D occurred while the link was down or not stably operating
+at 1 Gb/s, so those values alone were not the diagnosis.
+
+In this example, `E` and `RECR` remained zero even though the cable was bad;
+the PHY was failing during negotiation rather than reporting received-frame
+errors. If a UART log shows the same speed changes, link loss, and excessive
+applicable MSE values, replace the UTP cable and reseat the RJ45 connections
+before changing the VHDL, PHY configuration, or SGMII constraints.
+
+The same UART pattern can occur when the electrical contact between an RJ45
+plug and jack is intermittent, even if the UTP cable itself is undamaged.
+The UART report cannot distinguish these two causes because either one can
+disrupt one or more copper pairs. Unplug and firmly reseat both ends, check
+that each latch holds the plug securely, and try a known-good cable. If moving
+or lightly touching a connector changes the link behavior, inspect that plug,
+jack, and its board connection before changing the FPGA design.
 
 After taking corrective action, reset or reprogram the board and compare a new
 UART report with the previous one. Change one subsystem at a time so a new PCS,
