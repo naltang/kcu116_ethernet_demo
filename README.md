@@ -450,7 +450,10 @@ The relevant accumulated `ISR` values decode as follows:
 | Value | Events observed since the preceding UART line |
 |---|---|
 | `0x0040` | MDI crossover changed |
+| `0x0100` | False carrier |
+| `0x0104` | False carrier and xGMII error |
 | `0x1000` | An auto-negotiation page was received |
+| `0x1800` | A page was received and auto-negotiation completed |
 | `0x8000` | Auto-negotiation error |
 | `0x8040` | Auto-negotiation error and MDI crossover change |
 | `0x1C00` | Page received, auto-negotiation completed, and link status changed |
@@ -475,6 +478,46 @@ shows the same repeated 1-Gb/s attempts, `ISR` auto-negotiation errors, link
 loss, and excessive applicable MSE values, replace the UTP cable and reseat
 the RJ45 connections before changing the VHDL, PHY configuration, or SGMII
 constraints.
+
+#### Complementary capture with the FCS counter
+
+A later capture from the same bad-link test was not a duplicate of the
+preceding capture, although it followed the same overall pattern. Its most
+informative lines can be shortened as follows:
+
+```text
+1-Gb/s attempt: FRAME(R=0x0000 F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xA802 BMSR=0x7969 STS1=0x2800 ISR=0x1800
+False carrier:  FRAME(R=0x0000 F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xA802 BMSR=0x7969 STS1=0x2800 ISR=0x0100
+Idle errors:    FRAME(R=0x0000 F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xA802 BMSR=0x7969 STS1=0x08FF RECR=0x0000 ISR=0x0104 MSE(A=0x003F B=0x0033 C=0x003F D=0x0013)
+Attempt fails: FRAME(R=0x0000 F=0x0000 E=0x0000) PCS=0x220B PHYSTS=0x0002 BMSR=0x7949
+100-Mb/s link: FRAME(R=0x0000 F=0x0000 E=0x0000) PCS=0x348B PHYSTS=0x6C02 BMSR=0x796D ISR=0x1C00
+Valid receive: FRAME(R=0x0005 F=0x0000 E=0x0000) PCS=0x348B PHYSTS=0x6C02 BMSR=0x796D RECR=0x0000 ISR=0x0000
+```
+
+`STS1=0x08FF` reports `0xFF` (255) in the 8-bit 1000BASE-T idle-error
+counter, while both the local- and remote-receiver-status bits are clear.
+At the same time, `ISR=0x0104` records false-carrier and xGMII-error events.
+The next report shows that the 1-Gb/s attempt has dropped. This is direct
+evidence of a failure during 1000BASE-T reception or training, before useful
+Ethernet frames reach the FPGA.
+
+Unlike the preceding capture, the applicable MSE values during this attempt
+are below the excellent-link threshold of `0x020A`. An instantaneous set of
+low MSE samples therefore does not, by itself, prove that link establishment
+is stable. Interpret MSE together with `STS1`, `ISR`, `BMSR`, and repeated
+link behavior.
+
+`F=0` does not clear the cable or connector in this capture. While 1-Gb/s
+establishment is failing, `R` is also zero, so there are no completed received
+frames for the FCS checker to classify. After the PHY falls back to a stable
+100-Mb/s link, `R` reaches five while `F` remains zero; those five frames
+reached GMII with valid FCS values. `E=0` and `RECR=0` likewise show that the
+observed failure was not counted as a completed GMII receive-error interval or
+as a copper-side receiver error.
+
+The `S` counter continued to increase while the link was down. `S` confirms
+that the FPGA completed frames on its transmit interface; it does not confirm
+that those frames were delivered through the cable.
 
 The same UART pattern can occur when the electrical contact between an RJ45
 plug and jack is intermittent, even if the UTP cable itself is undamaged.
