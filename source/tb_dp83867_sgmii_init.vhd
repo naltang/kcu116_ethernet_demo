@@ -11,6 +11,7 @@ architecture sim of tb_dp83867_sgmii_init is
 
     signal clk         : std_logic := '0';
     signal rst         : std_logic := '1';
+    signal clear_isr   : std_logic := '0';
     signal phy_rst_n   : std_logic;
     signal mdc         : std_logic;
     signal mdio        : std_logic := 'H';
@@ -31,6 +32,7 @@ begin
         port map (
             clk         => clk,
             rst         => rst,
+            clear_isr   => clear_isr,
             phy_rst_n   => phy_rst_n,
             mdc         => mdc,
             mdio        => mdio,
@@ -97,6 +99,16 @@ begin
         assert diagnostics.recr = x"0005"
             report "DP83867 RECR register polling timed out" severity failure;
         report "DP83867 RECR register polling verified" severity note;
+        assert diagnostics.isr = x"5400"
+            report "DP83867 ISR accumulation timed out" severity failure;
+        clear_isr <= '1';
+        wait until rising_edge(clk);
+        clear_isr <= '0';
+        wait until rising_edge(clk);
+        assert diagnostics.isr = x"0000"
+            report "DP83867 ISR report-clear failed" severity failure;
+        report "DP83867 clear-on-read ISR accumulation verified"
+            severity note;
         assert diagnostics.mse_a = x"0123"
             report "DP83867 MSE_A indirect polling timed out"
             severity failure;

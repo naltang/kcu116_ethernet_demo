@@ -99,6 +99,7 @@ architecture rtl of ethernet_demo is
     signal uart_data    : std_logic_vector(7 downto 0);
     signal uart_valid   : std_logic;
     signal uart_ready   : std_logic;
+    signal uart_snapshot : std_logic;
 
     signal tx_activity  : std_logic := '0';
     signal rx_activity  : std_logic := '0';
@@ -129,6 +130,7 @@ begin
         port map (
             clk         => board_clk125,
             rst         => board_reset,
+            clear_isr   => uart_snapshot,
             phy_rst_n   => phy1_reset_b,
             mdc         => phy1_mdc,
             mdio        => phy1_mdio,
@@ -273,6 +275,7 @@ begin
             clk        => board_clk125,
             rst        => board_reset,
             status     => debug_status,
+            snapshot_taken => uart_snapshot,
             data_out   => uart_data,
             data_valid => uart_valid,
             data_ready => uart_ready

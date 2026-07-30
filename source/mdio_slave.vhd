@@ -34,6 +34,7 @@ architecture sim of mdio_slave is
         10 => x"6000",
         16 => x"5C48",
         17 => x"BF02",
+        19 => x"5400",
         21 => x"0005",
         others => x"0000"
     );
@@ -80,6 +81,7 @@ architecture sim of mdio_slave is
 
     signal read_addr   : std_logic_vector(4 downto 0) := (others => '0');
     signal read_data   : std_logic_vector(15 downto 0);
+    signal read_valid  : std_logic := '0';
     signal write_valid : std_logic := '0';
     signal write_addr  : std_logic_vector(4 downto 0) := (others => '0');
     signal write_data  : std_logic_vector(15 downto 0) := (others => '0');
@@ -110,6 +112,7 @@ begin
             mdio            => mdio,
             reg_read_addr   => read_addr,
             reg_read_data   => read_data,
+            reg_read_valid  => read_valid,
             reg_write_valid => write_valid,
             reg_write_addr  => write_addr,
             reg_write_data  => write_data
@@ -164,6 +167,10 @@ begin
                       write_data(14) = '1' then
                     restart_clear_count <= SELF_CLEAR_CYCLES;
                 end if;
+            elsif read_valid = '1' and read_addr = DP83867_REG_ISR then
+                -- ISR event bits are latched high and clear on read.
+                registers(to_integer(unsigned(DP83867_REG_ISR))) <=
+                    (others => '0');
             elsif registers(to_integer(unsigned(DP83867_REG_BMCR)))(15) =
                   '1' then
                 if reset_clear_count = 0 then

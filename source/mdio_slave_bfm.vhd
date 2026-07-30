@@ -15,6 +15,7 @@ entity mdio_slave_bfm is
         mdio            : inout std_logic;
         reg_read_addr   : out   std_logic_vector(4 downto 0);
         reg_read_data   : in    std_logic_vector(15 downto 0);
+        reg_read_valid  : out   std_logic;
         reg_write_valid : out   std_logic;
         reg_write_addr  : out   std_logic_vector(4 downto 0);
         reg_write_data  : out   std_logic_vector(15 downto 0)
@@ -76,10 +77,12 @@ begin
                 read_latched    <= (others => '0');
                 mdio_out        <= '1';
                 mdio_oe         <= '0';
+                reg_read_valid  <= '0';
                 reg_write_valid <= '0';
                 reg_write_addr  <= (others => '0');
                 reg_write_data  <= (others => '0');
             else
+                reg_read_valid  <= '0';
                 reg_write_valid <= '0';
 
                 if mdc_rising = '1' then
@@ -190,6 +193,8 @@ begin
                                                 mdio_in)
                                             severity note;
                                     end if;
+                                elsif opcode_latched = OP_READ then
+                                    reg_read_valid <= '1';
                                 end if;
                                 state <= IDLE;
                             else

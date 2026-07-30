@@ -18,6 +18,7 @@ entity dp83867_sgmii_init is
     port (
         clk         : in    std_logic;
         rst         : in    std_logic;
+        clear_isr   : in    std_logic;
         phy_rst_n   : out   std_logic;
         mdc         : out   std_logic;
         mdio        : inout std_logic;
@@ -37,7 +38,7 @@ architecture rtl of dp83867_sgmii_init is
     type capture_target_t is (
         CAP_NONE, CAP_BMSR, CAP_PHYSTS, CAP_PHYCR, CAP_CFG1,
         CAP_BMCR, CAP_ANAR, CAP_ANLPAR, CAP_ANER, CAP_STS1,
-        CAP_RECR, CAP_MSE_A, CAP_MSE_B, CAP_MSE_C, CAP_MSE_D,
+        CAP_RECR, CAP_ISR, CAP_MSE_A, CAP_MSE_B, CAP_MSE_C, CAP_MSE_D,
         CAP_CFG4, CAP_STRAP2, CAP_ANA_LD
     );
     type command_kind_t is (COMMAND_WRITE, COMMAND_READ);
@@ -137,7 +138,7 @@ architecture rtl of dp83867_sgmii_init is
         write_command(DP83867_REG_BMCR, x"1340")
     );
 
-    constant POLL_COMMANDS : command_array_t(0 to 38) := (
+    constant POLL_COMMANDS : command_array_t(0 to 39) := (
         -- BMSR link status is latched low, so discard the first read.
         read_command(DP83867_REG_BMSR),
         read_command(DP83867_REG_BMSR, CAP_BMSR),
@@ -150,6 +151,7 @@ architecture rtl of dp83867_sgmii_init is
         read_command(DP83867_REG_ANER, CAP_ANER),
         read_command(DP83867_REG_STS1, CAP_STS1),
         read_command(DP83867_REG_RECR, CAP_RECR),
+        read_command(DP83867_REG_ISR, CAP_ISR),
 
         -- Indirect reads of the four copper-channel link-quality values.
         write_command(DP83867_REG_REGCR, x"001F"),
@@ -321,6 +323,12 @@ begin
                 mse_c_pending  <= (others => '0');
                 sticky_error   <= '0';
             else
+                -- ISR is clear-on-read in the PHY. Accumulate every observed
+                -- event until the UART formatter has captured a report.
+                if clear_isr = '1' then
+                    diagnostics_i.isr <= (others => '0');
+                end if;
+
                 case state is
                     when RESET_HOLD =>
                         config_done_i <= '0';
@@ -392,6 +400,9 @@ begin
                                         diagnostics_i.sts1 <= read_data;
                                     when CAP_RECR =>
                                         diagnostics_i.recr <= read_data;
+                                    when CAP_ISR =>
+                                        diagnostics_i.isr <=
+                                            diagnostics_i.isr or read_data;
                                     when CAP_MSE_A =>
                                         mse_a_pending <= read_data;
                                     when CAP_MSE_B =>

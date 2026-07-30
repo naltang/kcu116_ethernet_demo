@@ -271,14 +271,18 @@ The FPGA continuously transmits a textual status line through the selected
 board's USB-UART bridge at 9600 baud, 8 data bits, no parity, and one stop bit:
 
 ```text
-FRAME(S=0xXXXX R=0xXXXX E=0xXXXX) PCS_STATUS=0xXXXX PHYSTS=0xXXXX PHYCR=0xXXXX CFG1=0xXXXX BMCR=0xXXXX BMSR=0xXXXX ANAR=0xXXXX ANLPAR=0xXXXX ANER=0xXXXX STS1=0xXXXX RECR=0xXXXX MSE(A=0xXXXX B=0xXXXX C=0xXXXX D=0xXXXX) CFG4=0xXXXX STRAP_STS2=0xXXXX ANA_LD_DATA_CTRL=0xXXXX
+FRAME(S=0xXXXX R=0xXXXX E=0xXXXX) PCS=0xXXXX PHYSTS=0xXXXX BMCR=0xXXXX BMSR=0xXXXX STS1=0xXXXX RECR=0xXXXX ISR=0xXXXX MSE(A=0xXXXX B=0xXXXX C=0xXXXX D=0xXXXX) ANAR=0xXXXX ANLPAR=0xXXXX ANER=0xXXXX PHYCR=0xXXXX CFG1=0xXXXX CFG4=0xXXXX STRAP2=0xXXXX ANA_LD=0xXXXX
 ```
 
 An illustrative report after successful 1-Gb/s auto-negotiation is:
 
 ```text
-FRAME(S=0x000C R=0x0003 E=0x0000) PCS_STATUS=0x388B PHYSTS=0xAC02 PHYCR=0x5848 CFG1=0x0300 BMCR=0x1140 BMSR=0x796D ANAR=0x01E1 ANLPAR=0xC1E1 ANER=0x006D STS1=0x7800 RECR=0x0000 MSE(A=0x0123 B=0x0145 C=0x0167 D=0x0189) CFG4=0x1030 STRAP_STS2=0x0150 ANA_LD_DATA_CTRL=0x0200
+FRAME(S=0x000C R=0x0003 E=0x0000) PCS=0x388B PHYSTS=0xAC02 BMCR=0x1140 BMSR=0x796D STS1=0x7800 RECR=0x0000 ISR=0x0000 MSE(A=0x0123 B=0x0145 C=0x0167 D=0x0189) ANAR=0x01E1 ANLPAR=0xC1E1 ANER=0x006D PHYCR=0x5848 CFG1=0x0300 CFG4=0x1030 STRAP2=0x0150 ANA_LD=0x0200
 ```
+
+The fields remain on one physical line. `FRAME(...)` groups the Ethernet
+statistics and `MSE(...)` groups the four copper-channel measurements. All
+other fields are printed without an enclosing group.
 
 ### Frame counters
 
@@ -327,25 +331,33 @@ This table is the canonical reference for the remaining UART fields:
 
 | Field | Source and meaning | Healthy reference indication |
 |---|---|---|
-| `PCS_STATUS` | 16-bit PCS/PMA status vector | Typically `0x388B`; bit 0 set and bits 11:10 equal `10` |
+| `PCS` | 16-bit PCS/PMA status vector | Typically `0x388B`; bit 0 set and bits 11:10 equal `10` |
 | `PHYSTS` | DP83867 Clause-22 register `0x11` | Typically `0xAC02` for a 1-Gb/s full-duplex link |
-| `PHYCR` | Clause-22 register `0x10`; includes SGMII enable and force-link-good controls | `0x5848`; bit 11 set and force-link-good bit 10 clear |
-| `CFG1` | Clause-22 register `0x09`; 1000BASE-T advertisement | `0x0300` |
 | `BMCR` | Basic mode control register | Typically `0x1140` after restart bit 9 from `0x1340` self-clears |
 | `BMSR` | Basic mode status register, read twice to expose current link state | Typically `0x796D`; link-status bit 2 set |
+| `STS1` | DP83867 status register 1 | Typically `0x7800` |
+| `RECR` | DP83867 Clause-22 receiver error counter at `0x15` | Normally `0x0000` |
+| `ISR` | Accumulated DP83867 interrupt-status events from Clause-22 register `0x13` since the preceding UART report | Often `0x0000` on a stable link; link or auto-negotiation events can make it nonzero |
+| `MSE(A/B/C/D)` | DP83867 extended mean-square-error registers `0x0225`, `0x0265`, `0x02A5`, and `0x02E5` | At 1 Gb/s, values below `0x020A` indicate excellent link quality |
 | `ANAR` | Auto-negotiation advertisement | Typically `0x01E1` |
 | `ANLPAR` | Link-partner auto-negotiation ability | Commonly `0xC1E1`; depends on the link partner |
 | `ANER` | Auto-negotiation expansion | Commonly `0x006D`; depends on the link partner |
-| `STS1` | DP83867 status register 1 | Typically `0x7800` |
-| `RECR` | DP83867 Clause-22 receiver error counter at `0x15` | Normally `0x0000` |
-| `MSE(A/B/C/D)` | DP83867 extended mean-square-error registers `0x0225`, `0x0265`, `0x02A5`, and `0x02E5` | At 1 Gb/s, values below `0x020A` indicate excellent link quality |
+| `PHYCR` | Clause-22 register `0x10`; includes SGMII enable and force-link-good controls | `0x5848`; bit 11 set and force-link-good bit 10 clear |
+| `CFG1` | Clause-22 register `0x09`; 1000BASE-T advertisement | `0x0300` |
 | `CFG4` | DP83867 configuration register 4 | `0x1030` |
-| `STRAP_STS2` | DP83867 strap status register 2 | Board strap status; `0x0150` is typical on the KCU116 |
-| `ANA_LD_DATA_CTRL` | DP83867 extended register `0x00DD` | `0x0200`; `0x000F` indicates disabled MDI transmitters |
+| `STRAP2` | DP83867 strap status register 2 | Board strap status; `0x0150` is typical on the KCU116 |
+| `ANA_LD` | DP83867 extended analog load-data control register `0x00DD` | `0x0200`; `0x000F` indicates disabled MDI transmitters |
 
 `PHYSTS` is polled after the double read of `BMSR`. Partner-dependent fields
 such as `ANLPAR`, `ANER`, and some status bits need not exactly match the
-example. Interpret them together with `BMSR`, `PHYSTS`, and `PCS_STATUS`.
+example. Interpret them together with `BMSR`, `PHYSTS`, and `PCS`.
+
+The DP83867 `ISR` event bits are latched high and clear when register `0x13`
+is read. Polling therefore ORs each read into an FPGA accumulator. The UART
+formatter snapshots that accumulator with the other fields, then clears it
+for the next report. A displayed bit means that the corresponding event was
+observed at least once since the preceding line; it is not a live level and
+does not count how many times the event occurred.
 
 The four `MSE` values measure copper-channel link quality; lower is better.
 TI classifies a value less than 522 (less than `0x020A`) as excellent, 522
@@ -386,40 +398,63 @@ problems.
 | PHY registers remain `0x0000` | PHY is held in reset, unpowered, or MDIO is stuck low | Check `phy1_reset_b`, the power-down pin, PHY supplies, and MDIO for a short to ground. |
 | LED 0 stays off or LED 6 turns on | PHY initialization did not complete | Reprogram the FPGA, ensure reset is stable, then verify the MDIO reset, extended-register writes, and software restart sequence before debugging UDP. |
 | `PHYCR`, `CFG1`, or `CFG4` differs from its configured value | Configuration was not applied or was overwritten | Check the MDIO transaction sequence and reset history. Confirm `PHYCR=0x5848`, `CFG1=0x0300`, and `CFG4=0x1030`. |
-| `ANA_LD_DATA_CTRL=0x000F` | Copper MDI transmitters are disabled | Check the PHY strap state and indirect extended-register access. Confirm that initialization completes and the value returns to `0x0200`. |
+| `ANA_LD=0x000F` | Copper MDI transmitters are disabled | Check the PHY strap state and indirect extended-register access. Confirm that initialization completes and the value returns to `0x0200`. |
 | `BMSR` link bit is clear and `PHYSTS` does not show link | Copper auto-negotiation or cabling | Try a known-good cable and 1-Gb/s switch port, allow negotiation to restart, and compare `ANAR` with `ANLPAR`. |
-| Link repeatedly changes between 1 Gb/s, 100 Mb/s, and down, or an applicable `MSE` value repeatedly exceeds `0x033B` | UTP cable, intermittent RJ45 contact, or another part of the copper path | Replace the UTP cable with a known-good Cat 5e or better cable first. Unplug and firmly reseat both RJ45 plugs, confirm that their latches hold, and inspect the plug and jack contacts. If the problem remains, try another switch port and inspect the other copper-side components. |
-| Copper link is up, but `PCS_STATUS` bit 0 and LED 2 stay low | SGMII-over-LVDS path | Verify the 625-MHz clock, SGMII RX/TX pin assignments, `PHYCR` SGMII enable, PCS reset, and any Vivado bitslice or location warnings. |
+| Link repeatedly changes between 1 Gb/s, 100 Mb/s, and down; an applicable `MSE` value repeatedly exceeds `0x033B`; or `ISR` includes auto-negotiation error bit `0x8000` during failed 1-Gb/s attempts | UTP cable, intermittent RJ45 contact, or another part of the copper path | Replace the UTP cable with a known-good Cat 5e or better cable first. Unplug and firmly reseat both RJ45 plugs, confirm that their latches hold, and inspect the plug and jack contacts. If the problem remains, try another switch port and inspect the other copper-side components. |
+| Copper link is up, but `PCS` bit 0 and LED 2 stay low | SGMII-over-LVDS path | Verify the 625-MHz clock, SGMII RX/TX pin assignments, `PHYCR` SGMII enable, PCS reset, and any Vivado bitslice or location warnings. |
 | LEDs 0, 1, and 2 are on and LED 3 toggles, but no datagram is received | Host capture or network configuration | Capture on the correct interface, verify host address `1.2.3.4/24` and UDP port 5678, and check the host firewall. |
 | ARP lookup or ping fails | Expected transmit-only behavior | Do not change PHY or PCS settings. The design never responds to ARP or ICMP; use the LEDs and UART report instead. |
-| LEDs 0, 1, and 2 are on, but LED 3 does not toggle | PCS client clock or transmit control | Check `clk125_out`, `sgmii_clk_en`, client reset, and the `PCS_STATUS` speed bits before inspecting the UDP generator. |
+| LEDs 0, 1, and 2 are on, but LED 3 does not toggle | PCS client clock or transmit control | Check `clk125_out`, `sgmii_clk_en`, client reset, and the `PCS` speed bits before inspecting the UDP generator. |
 | `R` increases by less than `send_udp.py --count` | Host, switch, or link loss | Verify the selected interface and broadcast address, capture the traffic at the sender, and remember that UDP does not guarantee delivery. |
 | LED 5 is on and `RECR` increases | Copper-side receive errors | Try a known-good cable and switch port, then compare `RECR` before and after controlled traffic. |
-| LED 5 is on but `RECR` remains unchanged | SGMII/PCS receive error | Reset or reprogram to clear LED 5, then probe `gmii_rx_er`, `gmii_rx_dv`, `gmii_rxd`, and `PCS_STATUS[6:4]`. Normal carrier extension is filtered; check SGMII signal integrity and the 625-MHz reference clock if another error pattern repeats. |
+| LED 5 is on but `RECR` remains unchanged | SGMII/PCS receive error | Reset or reprogram to clear LED 5, then probe `gmii_rx_er`, `gmii_rx_dv`, `gmii_rxd`, and `PCS[6:4]`. Normal carrier extension is filtered; check SGMII signal integrity and the 625-MHz reference clock if another error pattern repeats. |
 
 ### Bad UTP cable or intermittent RJ45 contact
 
-One captured bad-cable log repeatedly followed this shortened sequence:
+An updated capture made with the same known-bad UTP cable used for the earlier
+test repeatedly followed this shortened sequence:
 
 ```text
-100 Mb/s link:   PCS_STATUS=0x348B PHYSTS=0x6C02 BMSR=0x796D
-Link lost:       PCS_STATUS=0x220B PHYSTS=0x0000 BMSR=0x7949
-1-Gb/s attempt:  PCS_STATUS=0x3A0B PHYSTS=0xA002 BMSR=0x7949 MSE(A=0x00E9 B=0x0085 C=0x274A D=0x2D20)
-Link lost again: PCS_STATUS=0x220B PHYSTS=0x0002 BMSR=0x7949
+Down/training:      PCS=0x220B PHYSTS=0x0002 BMSR=0x7949 ISR=0x0040 MSE(A=0x0030 B=0x7FFF C=0x7FFF D=0x7FFF)
+AN page received:   PCS=0x220B PHYSTS=0x0002 BMSR=0x7949 ISR=0x1000 ANLPAR=0xC1E1
+1-Gb/s attempt:     PCS=0x3A0B PHYSTS=0xA002 BMSR=0x7949 ISR=0x1000 MSE(A=0x0116 B=0x00CE C=0x029F D=0x03CF)
+Attempt fails:      PCS=0x220B PHYSTS=0x0002 BMSR=0x7949 ISR=0x8040 MSE(A=0x002A B=0x7FFF C=0x7FFF D=0x7FFF)
+Another 1-Gb/s try: PCS=0x3A0B PHYSTS=0xA302 BMSR=0x7949 ISR=0x0000 MSE(A=0x0186 B=0x00F9 C=0x033E D=0x0151)
+Attempt fails:      PCS=0x220B PHYSTS=0x0302 BMSR=0x7949 ISR=0x8000 MSE(A=0x000A B=0x7FFF C=0x7FFF D=0x7FFF)
+100-Mb/s link:      PCS=0x348B PHYSTS=0x6C02 BMSR=0x796D ISR=0x1C00 MSE(A=0x0024 B=0x7FFF C=0x7FFF D=0x7FFF)
+Stable 100 Mb/s:    PCS=0x348B PHYSTS=0x6C02 BMSR=0x796D ISR=0x0000 R=0x000E
 ```
 
-The PHY first established only 100 Mb/s, lost the copper link, briefly
-attempted 1 Gb/s with extremely poor channel-C and channel-D MSE values, and
-then lost the link again. `MSE(C)=0x274A` and `MSE(D)=0x2D20` are far above
-the poor-quality threshold of `0x033B`. The recurring `0x7FFF` values on
-channels B through D occurred while the link was down or not stably operating
-at 1 Gb/s, so those values alone were not the diagnosis.
+The relevant accumulated `ISR` values decode as follows:
+
+| Value | Events observed since the preceding UART line |
+|---|---|
+| `0x0040` | MDI crossover changed |
+| `0x1000` | An auto-negotiation page was received |
+| `0x8000` | Auto-negotiation error |
+| `0x8040` | Auto-negotiation error and MDI crossover change |
+| `0x1C00` | Page received, auto-negotiation completed, and link status changed |
+
+During each 1-Gb/s attempt, all four MSE channels were applicable.
+`MSE(D)=0x03CF` and, on a later attempt, `MSE(C)=0x033E` exceeded the poor-link
+threshold of `0x033B`. The link-status bit in `BMSR=0x7949` remained clear,
+and the attempts ended with the auto-negotiation error bit in `ISR=0x8040` or
+`ISR=0x8000`. The PHY eventually completed auto-negotiation at 100 Mb/s,
+reported `ISR=0x1C00`, and then received frames as `R` increased.
+
+The recurring `0x7FFF` values on channels B through D occurred while the link
+was down, training, or operating at 100 Mb/s. Those channels are inapplicable
+at 100 Mb/s, so `0x7FFF` alone is not evidence of a bad cable.
 
 In this example, `E` and `RECR` remained zero even though the cable was bad;
 the PHY was failing during negotiation rather than reporting received-frame
-errors. If a UART log shows the same speed changes, link loss, and excessive
-applicable MSE values, replace the UTP cable and reseat the RJ45 connections
-before changing the VHDL, PHY configuration, or SGMII constraints.
+errors. An auto-negotiation error bit confirms that negotiation failed, but
+does not identify whether the physical cause is the cable, an intermittent
+connector, the link partner, or another copper-path component. If a UART log
+shows the same repeated 1-Gb/s attempts, `ISR` auto-negotiation errors, link
+loss, and excessive applicable MSE values, replace the UTP cable and reseat
+the RJ45 connections before changing the VHDL, PHY configuration, or SGMII
+constraints.
 
 The same UART pattern can occur when the electrical contact between an RJ45
 plug and jack is intermittent, even if the UTP cable itself is undamaged.
@@ -491,6 +526,7 @@ DP83867 PHYSTS register polling verified
 DP83867 PHYCR register polling verified
 DP83867 CFG1 register polling verified
 DP83867 RECR register polling verified
+DP83867 clear-on-read ISR accumulation verified
 DP83867 MSE register polling verified
 DP83867 diagnostic-register polling verified
 ```
@@ -516,7 +552,7 @@ DP83867 diagnostic-register polling verified
 - The multi-bit PCS status uses a request/acknowledge snapshot handshake so one
   UART line cannot contain a mixture of two PCS status updates.
 - The UART formatter snapshots all fields once per line and streams individual
-  bytes to the transmitter instead of latching a 273-byte vector.
+  bytes to the transmitter instead of latching a 263-byte vector.
 - The UDP transmitter stores one accepted payload snapshot and addresses it by
   byte or word index for checksum and serialization.
 - The generated PCS/PMA core is isolated behind `pcs_pma_wrapper`, keeping its

@@ -15,6 +15,7 @@ entity uart_status_report is
         clk        : in  std_logic;
         rst        : in  std_logic;
         status     : in  debug_status_t;
+        snapshot_taken : out std_logic;
         data_out   : out std_logic_vector(7 downto 0);
         data_valid : out std_logic;
         data_ready : in  std_logic
@@ -24,7 +25,7 @@ end entity uart_status_report;
 architecture rtl of uart_status_report is
     constant CLKS_PER_BIT : positive := CLOCK_FREQ_HZ / BAUD_RATE;
     constant PAUSE_CYCLES : positive := CLKS_PER_BIT * PAUSE_BIT_TIMES;
-    constant WORD_COUNT   : positive := 21;
+    constant WORD_COUNT   : positive := 22;
     constant LAST_SEGMENT : natural := WORD_COUNT * 2;
 
     type report_state_t is (PAUSE, SEND);
@@ -33,6 +34,7 @@ architecture rtl of uart_status_report is
     signal segment_index   : natural range 0 to LAST_SEGMENT := 0;
     signal character_index : natural range 0 to 31 := 0;
     signal status_latched  : debug_status_t := DEBUG_STATUS_RESET;
+    signal snapshot_taken_i : std_logic := '0';
 
     subtype text_segment_t is string(1 to 20);
 
@@ -57,25 +59,26 @@ architecture rtl of uart_status_report is
             when 0  => return padded_text("FRAME(S=0x");
             when 2  => return padded_text(" R=0x");
             when 4  => return padded_text(" E=0x");
-            when 6  => return padded_text(") PCS_STATUS=0x");
+            when 6  => return padded_text(") PCS=0x");
             when 8  => return padded_text(" PHYSTS=0x");
-            when 10 => return padded_text(" PHYCR=0x");
-            when 12 => return padded_text(" CFG1=0x");
-            when 14 => return padded_text(" BMCR=0x");
-            when 16 => return padded_text(" BMSR=0x");
-            when 18 => return padded_text(" ANAR=0x");
-            when 20 => return padded_text(" ANLPAR=0x");
-            when 22 => return padded_text(" ANER=0x");
-            when 24 => return padded_text(" STS1=0x");
-            when 26 => return padded_text(" RECR=0x");
-            when 28 => return padded_text(" MSE(A=0x");
-            when 30 => return padded_text(" B=0x");
-            when 32 => return padded_text(" C=0x");
-            when 34 => return padded_text(" D=0x");
-            when 36 => return padded_text(") CFG4=0x");
-            when 38 => return padded_text(" STRAP_STS2=0x");
-            when 40 => return padded_text(" ANA_LD_DATA_CTRL=0x");
-            when 42 => return padded_text(CR & LF);
+            when 10 => return padded_text(" BMCR=0x");
+            when 12 => return padded_text(" BMSR=0x");
+            when 14 => return padded_text(" STS1=0x");
+            when 16 => return padded_text(" RECR=0x");
+            when 18 => return padded_text(" ISR=0x");
+            when 20 => return padded_text(" MSE(A=0x");
+            when 22 => return padded_text(" B=0x");
+            when 24 => return padded_text(" C=0x");
+            when 26 => return padded_text(" D=0x");
+            when 28 => return padded_text(") ANAR=0x");
+            when 30 => return padded_text(" ANLPAR=0x");
+            when 32 => return padded_text(" ANER=0x");
+            when 34 => return padded_text(" PHYCR=0x");
+            when 36 => return padded_text(" CFG1=0x");
+            when 38 => return padded_text(" CFG4=0x");
+            when 40 => return padded_text(" STRAP2=0x");
+            when 42 => return padded_text(" ANA_LD=0x");
+            when 44 => return padded_text(CR & LF);
             when others => return (others => ' ');
         end case;
     end function;
@@ -91,22 +94,23 @@ architecture rtl of uart_status_report is
             when 2  => return status_value.recv_error_count;
             when 3  => return status_value.pcs_status;
             when 4  => return status_value.phy.physts;
-            when 5  => return status_value.phy.phycr;
-            when 6  => return status_value.phy.cfg1;
-            when 7  => return status_value.phy.bmcr;
-            when 8  => return status_value.phy.bmsr;
-            when 9  => return status_value.phy.anar;
-            when 10 => return status_value.phy.anlpar;
-            when 11 => return status_value.phy.aner;
-            when 12 => return status_value.phy.sts1;
-            when 13 => return status_value.phy.recr;
-            when 14 => return status_value.phy.mse_a;
-            when 15 => return status_value.phy.mse_b;
-            when 16 => return status_value.phy.mse_c;
-            when 17 => return status_value.phy.mse_d;
-            when 18 => return status_value.phy.cfg4;
-            when 19 => return status_value.phy.strap_sts2;
-            when 20 => return status_value.phy.ana_ld_data_ctrl;
+            when 5  => return status_value.phy.bmcr;
+            when 6  => return status_value.phy.bmsr;
+            when 7  => return status_value.phy.sts1;
+            when 8  => return status_value.phy.recr;
+            when 9  => return status_value.phy.isr;
+            when 10 => return status_value.phy.mse_a;
+            when 11 => return status_value.phy.mse_b;
+            when 12 => return status_value.phy.mse_c;
+            when 13 => return status_value.phy.mse_d;
+            when 14 => return status_value.phy.anar;
+            when 15 => return status_value.phy.anlpar;
+            when 16 => return status_value.phy.aner;
+            when 17 => return status_value.phy.phycr;
+            when 18 => return status_value.phy.cfg1;
+            when 19 => return status_value.phy.cfg4;
+            when 20 => return status_value.phy.strap_sts2;
+            when 21 => return status_value.phy.ana_ld_data_ctrl;
             when others => return x"0000";
         end case;
     end function;
@@ -161,22 +165,22 @@ architecture rtl of uart_status_report is
         case segment_value is
             when 0             => return 10;
             when 2 | 4         => return 5;
-            when 6             => return 15;
+            when 6             => return 8;
             when 8             => return 10;
-            when 10            => return 9;
+            when 10            => return 8;
             when 12 | 14 | 16 |
-                 18 | 22 | 24 |
-                 26            => return 8;
-            when 20            => return 10;
-            when 28 | 36       => return 9;
-            when 30 | 32 | 34  => return 5;
-            when 38            => return 14;
-            when 40            => return 20;
-            when 42            => return 2;
+                 32 | 36 | 38  => return 8;
+            when 18            => return 7;
+            when 20            => return 9;
+            when 30 | 40 | 42  => return 10;
+            when 22 | 24 | 26  => return 5;
+            when 28 | 34       => return 9;
+            when 44            => return 2;
             when others        => return 1;
         end case;
     end function;
 begin
+    snapshot_taken <= snapshot_taken_i;
     data_valid <= '1' when state = SEND else '0';
     data_out <= std_logic_vector(to_unsigned(character'pos(current_character(
         segment_index, character_index, status_latched)), 8));
@@ -190,7 +194,9 @@ begin
                 segment_index   <= 0;
                 character_index <= 0;
                 status_latched  <= DEBUG_STATUS_RESET;
+                snapshot_taken_i <= '0';
             else
+                snapshot_taken_i <= '0';
                 case state is
                     when PAUSE =>
                         if pause_count = PAUSE_CYCLES - 1 then
@@ -198,6 +204,7 @@ begin
                             segment_index   <= 0;
                             character_index <= 0;
                             status_latched  <= status;
+                            snapshot_taken_i <= '1';
                             state           <= SEND;
                         else
                             pause_count <= pause_count + 1;

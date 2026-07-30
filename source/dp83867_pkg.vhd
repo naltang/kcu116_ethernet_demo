@@ -19,6 +19,7 @@ package dp83867_pkg is
     constant DP83867_REG_ADDAR  : mdio_register_address_t := "01110";
     constant DP83867_REG_PHYCR  : mdio_register_address_t := "10000";
     constant DP83867_REG_PHYSTS : mdio_register_address_t := "10001";
+    constant DP83867_REG_ISR    : mdio_register_address_t := "10011";
     constant DP83867_REG_RECR   : mdio_register_address_t := "10101";
     constant DP83867_REG_CTRL   : mdio_register_address_t := "11111";
 
@@ -44,6 +45,7 @@ package dp83867_pkg is
         aner             : mdio_word_t;
         sts1             : mdio_word_t;
         recr             : mdio_word_t;
+        isr              : mdio_word_t;
         mse_a            : mdio_word_t;
         mse_b            : mdio_word_t;
         mse_c            : mdio_word_t;
@@ -64,6 +66,7 @@ package dp83867_pkg is
         aner             => (others => '0'),
         sts1             => (others => '0'),
         recr             => (others => '0'),
+        isr              => (others => '0'),
         mse_a            => (others => '0'),
         mse_b            => (others => '0'),
         mse_c            => (others => '0'),
