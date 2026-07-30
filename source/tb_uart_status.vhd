@@ -12,13 +12,13 @@ architecture sim of tb_uart_status is
     constant BAUD_RATE     : positive := 1_000_000;
     constant BIT_PERIOD    : time := 1 sec / BAUD_RATE;
     constant EXPECTED_LINE : string :=
-        "FRAME(S=0x0001 R=0x0002 E=0x0003) PCS=0x0004" &
-        " PHYSTS=0x0005 BMCR=0x0006 BMSR=0x0007 STS1=0x0008" &
-        " RECR=0x0009 ISR=0x000A" &
-        " MSE(A=0x000B B=0x000C C=0x000D D=0x000E)" &
-        " ANAR=0x000F ANLPAR=0x0010 ANER=0x0011" &
-        " PHYCR=0x0012 CFG1=0x0013 CFG4=0x0014" &
-        " STRAP2=0x0015 ANA_LD=0x0016" & CR & LF;
+        "FRAME(S=0x0001 R=0x0002 F=0x0003 E=0x0004) PCS=0x0005" &
+        " PHYSTS=0x0006 BMCR=0x0007 BMSR=0x0008 STS1=0x0009" &
+        " RECR=0x000A ISR=0x000B" &
+        " MSE(A=0x000C B=0x000D C=0x000E D=0x000F)" &
+        " ANAR=0x0010 ANLPAR=0x0011 ANER=0x0012" &
+        " PHYCR=0x0013 CFG1=0x0014 CFG4=0x0015" &
+        " STRAP2=0x0016 ANA_LD=0x0017" & CR & LF;
 
     signal clk        : std_logic := '0';
     signal rst        : std_logic := '1';
@@ -65,26 +65,27 @@ begin
     begin
         status.frame_sent_count       <= x"0001";
         status.recv_count             <= x"0002";
-        status.recv_error_count       <= x"0003";
-        status.pcs_status             <= x"0004";
-        status.phy.physts             <= x"0005";
-        status.phy.bmcr               <= x"0006";
-        status.phy.bmsr               <= x"0007";
-        status.phy.sts1               <= x"0008";
-        status.phy.recr               <= x"0009";
-        status.phy.isr                <= x"000A";
-        status.phy.mse_a              <= x"000B";
-        status.phy.mse_b              <= x"000C";
-        status.phy.mse_c              <= x"000D";
-        status.phy.mse_d              <= x"000E";
-        status.phy.anar               <= x"000F";
-        status.phy.anlpar             <= x"0010";
-        status.phy.aner               <= x"0011";
-        status.phy.phycr              <= x"0012";
-        status.phy.cfg1               <= x"0013";
-        status.phy.cfg4               <= x"0014";
-        status.phy.strap_sts2         <= x"0015";
-        status.phy.ana_ld_data_ctrl   <= x"0016";
+        status.recv_fcs_error_count   <= x"0003";
+        status.recv_error_count       <= x"0004";
+        status.pcs_status             <= x"0005";
+        status.phy.physts             <= x"0006";
+        status.phy.bmcr               <= x"0007";
+        status.phy.bmsr               <= x"0008";
+        status.phy.sts1               <= x"0009";
+        status.phy.recr               <= x"000A";
+        status.phy.isr                <= x"000B";
+        status.phy.mse_a              <= x"000C";
+        status.phy.mse_b              <= x"000D";
+        status.phy.mse_c              <= x"000E";
+        status.phy.mse_d              <= x"000F";
+        status.phy.anar               <= x"0010";
+        status.phy.anlpar             <= x"0011";
+        status.phy.aner               <= x"0012";
+        status.phy.phycr              <= x"0013";
+        status.phy.cfg1               <= x"0014";
+        status.phy.cfg4               <= x"0015";
+        status.phy.strap_sts2         <= x"0016";
+        status.phy.ana_ld_data_ctrl   <= x"0017";
         wait until rising_edge(clk);
         wait until rising_edge(clk);
         rst <= '0';

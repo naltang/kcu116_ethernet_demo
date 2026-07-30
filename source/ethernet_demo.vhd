@@ -88,9 +88,11 @@ architecture rtl of ethernet_demo is
 
     signal frame_sent_count_pcs : unsigned(15 downto 0);
     signal recv_count_pcs       : unsigned(15 downto 0);
+    signal recv_fcs_error_count_pcs : unsigned(15 downto 0);
     signal recv_error_count_pcs : unsigned(15 downto 0);
     signal frame_sent_count_uart : unsigned(15 downto 0);
     signal recv_count_uart       : unsigned(15 downto 0);
+    signal recv_fcs_error_count_uart : unsigned(15 downto 0);
     signal recv_error_count_uart : unsigned(15 downto 0);
     signal recv_started          : std_logic;
     signal recv_error_event      : std_logic;
@@ -220,6 +222,7 @@ begin
             recv_error_event => recv_error_event,
             frame_sent_count => frame_sent_count_pcs,
             recv_count       => recv_count_pcs,
+            recv_fcs_error_count => recv_fcs_error_count_pcs,
             recv_error_count => recv_error_count_pcs
         );
 
@@ -237,6 +240,14 @@ begin
             dest_clk     => board_clk125,
             dest_rst     => board_reset,
             dest_count   => recv_count_uart
+        );
+
+    recv_fcs_error_count_cdc_i : entity work.gray_counter_cdc
+        port map (
+            source_count => recv_fcs_error_count_pcs,
+            dest_clk     => board_clk125,
+            dest_rst     => board_reset,
+            dest_count   => recv_fcs_error_count_uart
         );
 
     recv_error_count_cdc_i : entity work.gray_counter_cdc
@@ -260,6 +271,8 @@ begin
     debug_status.frame_sent_count <=
         std_logic_vector(frame_sent_count_uart);
     debug_status.recv_count       <= std_logic_vector(recv_count_uart);
+    debug_status.recv_fcs_error_count <=
+        std_logic_vector(recv_fcs_error_count_uart);
     debug_status.recv_error_count <=
         std_logic_vector(recv_error_count_uart);
     debug_status.pcs_status <= pcs_status_uart;
