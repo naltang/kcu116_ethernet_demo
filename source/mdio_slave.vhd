@@ -15,7 +15,9 @@ entity mdio_slave is
         clk   : in    std_logic;
         rst_n : in    std_logic;
         mdc   : in    std_logic;
-        mdio  : inout std_logic
+        mdio  : inout std_logic;
+        debug_extended_address : in  mdio_word_t;
+        debug_extended_data    : out mdio_word_t
     );
 end entity mdio_slave;
 
@@ -99,6 +101,9 @@ begin
     assert EXTENDED_ADDRESS_BITS >= 10
         report "The DP83867 model requires at least ten address bits"
         severity failure;
+
+    debug_extended_data <= extended_registers(
+        extended_index(debug_extended_address));
 
     bfm : entity work.mdio_slave_bfm
         generic map (

@@ -8,6 +8,16 @@ create_clock -name board_clk125 -period 8.000 [get_ports clk_125_p]
 set_property PACKAGE_PIN B9 [get_ports cpu_reset]
 set_property IOSTANDARD LVCMOS33 [get_ports cpu_reset]
 
+## Five directional user pushbuttons, active high
+set_property PACKAGE_PIN A9  [get_ports button_c]
+set_property PACKAGE_PIN A10 [get_ports button_n]
+set_property PACKAGE_PIN B11 [get_ports button_e]
+set_property PACKAGE_PIN C11 [get_ports button_s]
+set_property PACKAGE_PIN B10 [get_ports button_w]
+set_property IOSTANDARD LVCMOS33 [get_ports {
+    button_c button_n button_e button_s button_w
+}]
+
 ## FPGA transmit side of the KCU116 USB-UART bridge
 set_property PACKAGE_PIN W13 [get_ports uart_tx]
 set_property IOSTANDARD LVCMOS18 [get_ports uart_tx]

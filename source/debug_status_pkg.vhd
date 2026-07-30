@@ -4,6 +4,7 @@ use work.dp83867_pkg.all;
 
 package debug_status_pkg is
     type debug_status_t is record
+        profile_code     : std_logic_vector(7 downto 0);
         frame_sent_count : std_logic_vector(15 downto 0);
         recv_count       : std_logic_vector(15 downto 0);
         recv_fcs_error_count : std_logic_vector(15 downto 0);
@@ -13,6 +14,7 @@ package debug_status_pkg is
     end record;
 
     constant DEBUG_STATUS_RESET : debug_status_t := (
+        profile_code     => phy_profile_code(PHY_PROFILE_CENTER),
         frame_sent_count => (others => '0'),
         recv_count       => (others => '0'),
         recv_fcs_error_count => (others => '0'),

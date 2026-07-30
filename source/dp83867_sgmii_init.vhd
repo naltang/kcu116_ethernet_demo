@@ -18,11 +18,14 @@ entity dp83867_sgmii_init is
     port (
         clk         : in    std_logic;
         rst         : in    std_logic;
+        profile_select : in phy_profile_t;
+        reinitialize : in   std_logic;
         clear_isr   : in    std_logic;
         phy_rst_n   : out   std_logic;
         mdc         : out   std_logic;
         mdio        : inout std_logic;
         config_done : out   std_logic;
+        active_profile : out phy_profile_t;
         link_up     : out   std_logic;
         diagnostics : out   phy_diagnostics_t;
         error       : out   std_logic
@@ -90,11 +93,105 @@ architecture rtl of dp83867_sgmii_init is
         return read_command(DP83867_REG_ADDAR, target_value);
     end function;
 
-    constant INIT_COMMANDS : command_array_t(0 to 22) := (
-        -- Hardware reset is followed by the standard software reset.
-        write_command(DP83867_REG_BMCR, x"8000"),
-        read_command(DP83867_REG_BMCR, clear_mask => x"8000"),
+    type extended_write_t is record
+        address_value : mdio_word_t;
+        data_value    : mdio_word_t;
+    end record;
+    type extended_write_array_t is
+        array (natural range <>) of extended_write_t;
 
+    constant NORTH_PROFILE_WRITES : extended_write_array_t(0 to 1) := (
+        -- TI inter-channel link-margin configuration: allow more AGC
+        -- convergence time, then retain the converged gain settings.
+        (DP83867_EXT_TRAINING_0102, x"7477"),
+        (DP83867_EXT_AGC_RETRAIN, x"0080")
+    );
+
+    constant EAST_PROFILE_WRITES : extended_write_array_t(0 to 0) := (
+        -- TI unstable-1-Gb/s configuration: select normal MDI amplitude.
+        0 => (DP83867_EXT_MDI_AMPLITUDE, x"F508")
+    );
+
+    constant SOUTH_PROFILE_WRITES : extended_write_array_t(0 to 14) := (
+        -- TI short-cable DSP link-margin configuration.
+        (DP83867_EXT_VITERBI_IDLE_CTRL, x"2054"),
+        (DP83867_EXT_CAGC_DC_COMP, x"3840"),
+        (DP83867_EXT_TRAINING_0102, x"7477"),
+        (DP83867_EXT_TRAINING_0103, x"7777"),
+        (DP83867_EXT_TRAINING_0104, x"4577"),
+        (DP83867_EXT_TIMING_010C, x"7777"),
+        (DP83867_EXT_TIMING_01C2, x"7FDE"),
+        (DP83867_EXT_TRAINING_0115, x"5555"),
+        (DP83867_EXT_TRAINING_0118, x"0771"),
+        (DP83867_EXT_TIMING_011D, x"6DB2"),
+        (DP83867_EXT_TIMING_011E, x"3FFB"),
+        (DP83867_EXT_TIMING_01C3, x"FFC6"),
+        (DP83867_EXT_TIMING_01C4, x"0FC2"),
+        (DP83867_EXT_TIMING_01C5, x"0FF0"),
+        (DP83867_EXT_FFE_CFG, x"0E81")
+    );
+
+    function profile_write_count(
+        profile : phy_profile_t
+    ) return natural is
+    begin
+        case profile is
+            when PHY_PROFILE_NORTH =>
+                return NORTH_PROFILE_WRITES'length;
+            when PHY_PROFILE_EAST =>
+                return EAST_PROFILE_WRITES'length;
+            when PHY_PROFILE_SOUTH =>
+                return SOUTH_PROFILE_WRITES'length;
+            when PHY_PROFILE_CENTER | PHY_PROFILE_WEST =>
+                return 0;
+        end case;
+    end function;
+
+    function profile_write(
+        profile     : phy_profile_t;
+        write_index : natural
+    ) return extended_write_t is
+    begin
+        case profile is
+            when PHY_PROFILE_NORTH =>
+                return NORTH_PROFILE_WRITES(write_index);
+            when PHY_PROFILE_EAST =>
+                return EAST_PROFILE_WRITES(write_index);
+            when PHY_PROFILE_SOUTH =>
+                return SOUTH_PROFILE_WRITES(write_index);
+            when PHY_PROFILE_CENTER | PHY_PROFILE_WEST =>
+                return (x"0000", x"0000");
+        end case;
+    end function;
+
+    function profile_command(
+        profile       : phy_profile_t;
+        command_index : natural
+    ) return command_t is
+        variable selected_write : extended_write_t;
+    begin
+        selected_write := profile_write(profile, command_index / 4);
+        case command_index mod 4 is
+            when 0 =>
+                return write_command(DP83867_REG_REGCR, x"001F");
+            when 1 =>
+                return extended_address_command(
+                    selected_write.address_value);
+            when 2 =>
+                return write_command(DP83867_REG_REGCR, x"401F");
+            when others =>
+                return extended_data_write(selected_write.data_value);
+        end case;
+    end function;
+
+    constant INIT_PREFIX_COMMANDS : command_array_t(0 to 1) := (
+        -- Each profile begins from reset defaults so no tuning from the
+        -- previously selected profile can remain active.
+        write_command(DP83867_REG_BMCR, x"8000"),
+        read_command(DP83867_REG_BMCR, clear_mask => x"8000")
+    );
+
+    constant BASE_COMMANDS : command_array_t(0 to 17) := (
         -- Establish the board-independent copper settings before starting
         -- Auto-Negotiation.  FORCE_LINK_GOOD must be clear in PHYCR, while
         -- SGMII and automatic MDI/MDIX remain enabled.  CFG1 uses automatic
@@ -126,8 +223,25 @@ architecture rtl of dp83867_sgmii_init is
         write_command(DP83867_REG_REGCR, x"001F"),
         extended_address_command(DP83867_EXT_CFG4),
         write_command(DP83867_REG_REGCR, x"401F"),
-        extended_data_write(x"1030"),
+        extended_data_write(x"1030")
+    );
 
+    function base_command(
+        profile       : phy_profile_t;
+        command_index : natural
+    ) return command_t is
+        variable result : command_t;
+    begin
+        result := BASE_COMMANDS(command_index);
+        if profile = PHY_PROFILE_WEST and command_index = 9 then
+            -- Diagnostic profile: disable speed optimization/downshift while
+            -- retaining SGMII auto-negotiation and the remaining base bits.
+            result.data := x"29C0";
+        end if;
+        return result;
+    end function;
+
+    constant INIT_SUFFIX_COMMANDS : command_array_t(0 to 2) := (
         -- Apply the extended-register settings.  CTRL.SW_RESTART preserves
         -- the register file but restarts the PHY state machines.
         write_command(DP83867_REG_CTRL, x"4000"),
@@ -137,6 +251,48 @@ architecture rtl of dp83867_sgmii_init is
         -- completed.
         write_command(DP83867_REG_BMCR, x"1340")
     );
+
+    function initialization_command_count(
+        profile : phy_profile_t
+    ) return positive is
+    begin
+        return INIT_PREFIX_COMMANDS'length +
+            profile_write_count(profile) * 4 +
+            BASE_COMMANDS'length +
+            INIT_SUFFIX_COMMANDS'length;
+    end function;
+
+    function initialization_command(
+        profile       : phy_profile_t;
+        command_index : natural
+    ) return command_t is
+        variable relative_index : natural;
+        variable profile_command_count : natural;
+    begin
+        if command_index < INIT_PREFIX_COMMANDS'length then
+            return INIT_PREFIX_COMMANDS(command_index);
+        end if;
+
+        relative_index := command_index - INIT_PREFIX_COMMANDS'length;
+        profile_command_count := profile_write_count(profile) * 4;
+        if relative_index < profile_command_count then
+            return profile_command(profile, relative_index);
+        end if;
+
+        relative_index := relative_index - profile_command_count;
+        if relative_index < BASE_COMMANDS'length then
+            return base_command(profile, relative_index);
+        end if;
+
+        relative_index := relative_index - BASE_COMMANDS'length;
+        return INIT_SUFFIX_COMMANDS(relative_index);
+    end function;
+
+    constant MAX_INIT_COMMAND_INDEX : natural :=
+        INIT_PREFIX_COMMANDS'length +
+        SOUTH_PROFILE_WRITES'length * 4 +
+        BASE_COMMANDS'length +
+        INIT_SUFFIX_COMMANDS'length - 1;
 
     constant POLL_COMMANDS : command_array_t(0 to 39) := (
         -- BMSR link status is latched low, so discard the first read.
@@ -198,14 +354,29 @@ architecture rtl of dp83867_sgmii_init is
     type state_t is (
         RESET_HOLD, POST_RESET_WAIT, COMMAND_ISSUE, COMMAND_WAIT, POLL_DELAY
     );
+
+    function selected_command(
+        phase_value   : phase_t;
+        profile_value : phy_profile_t;
+        command_value : natural
+    ) return command_t is
+    begin
+        if phase_value = INITIALIZATION then
+            return initialization_command(profile_value, command_value);
+        end if;
+        return POLL_COMMANDS(command_value);
+    end function;
+
     signal state : state_t := RESET_HOLD;
     signal phase : phase_t := INITIALIZATION;
 
     signal delay_count   : natural range 0 to POST_RESET_CYCLES - 1 := 0;
     signal poll_count    : natural range 0 to POLL_CYCLES - 1 := 0;
-    signal command_index : natural range 0 to POLL_COMMANDS'high :=
-        INIT_COMMANDS'low;
-    signal current_command : command_t := INIT_COMMANDS(INIT_COMMANDS'low);
+    signal command_index : natural range 0 to MAX_INIT_COMMAND_INDEX := 0;
+    signal current_command : command_t :=
+        INIT_PREFIX_COMMANDS(INIT_PREFIX_COMMANDS'low);
+    signal initialization_profile : phy_profile_t := PHY_PROFILE_CENTER;
+    signal active_profile_i       : phy_profile_t := PHY_PROFILE_CENTER;
 
     signal cmd_reg       : std_logic_vector(4 downto 0) := DP83867_REG_BMCR;
     signal cmd_data      : std_logic_vector(15 downto 0) := (others => '0');
@@ -241,13 +412,14 @@ begin
     mdio <= mdio_out when mdio_tri = '0' else 'Z';
 
     config_done <= config_done_i;
+    active_profile <= active_profile_i;
     link_up     <= link_up_i;
     diagnostics <= diagnostics_i;
     error       <= sticky_error;
     phy_rst_n   <= '0' when state = RESET_HOLD else '1';
 
-    current_command <= INIT_COMMANDS(command_index)
-        when phase = INITIALIZATION else POLL_COMMANDS(command_index);
+    current_command <= selected_command(
+        phase, initialization_profile, command_index);
 
     command_mux : process(all)
     begin
@@ -289,9 +461,13 @@ begin
         begin
             reset_reads <= 0;
             if phase = INITIALIZATION then
-                if command_index = INIT_COMMANDS'high then
+                if command_index =
+                   initialization_command_count(initialization_profile) - 1
+                then
                     config_done_i <= '1';
+                    active_profile_i <= initialization_profile;
                     poll_count    <= 0;
+                    command_index <= POLL_COMMANDS'low;
                     phase         <= POLLING;
                     state         <= POLL_DELAY;
                 else
@@ -314,8 +490,26 @@ begin
                 reset_reads    <= 0;
                 delay_count    <= 0;
                 poll_count     <= 0;
-                command_index  <= INIT_COMMANDS'low;
+                command_index  <= 0;
                 config_done_i  <= '0';
+                initialization_profile <= PHY_PROFILE_CENTER;
+                active_profile_i <= PHY_PROFILE_CENTER;
+                link_up_i      <= '0';
+                diagnostics_i  <= PHY_DIAGNOSTICS_RESET;
+                mse_a_pending  <= (others => '0');
+                mse_b_pending  <= (others => '0');
+                mse_c_pending  <= (others => '0');
+                sticky_error   <= '0';
+            elsif reinitialize = '1' then
+                state          <= RESET_HOLD;
+                phase          <= INITIALIZATION;
+                reset_count    <= 0;
+                reset_reads    <= 0;
+                delay_count    <= 0;
+                poll_count     <= 0;
+                command_index  <= 0;
+                config_done_i  <= '0';
+                initialization_profile <= profile_select;
                 link_up_i      <= '0';
                 diagnostics_i  <= PHY_DIAGNOSTICS_RESET;
                 mse_a_pending  <= (others => '0');
@@ -345,7 +539,7 @@ begin
                     when POST_RESET_WAIT =>
                         if delay_count = POST_RESET_CYCLES - 1 then
                             delay_count   <= 0;
-                            command_index <= INIT_COMMANDS'low;
+                            command_index <= 0;
                             state         <= COMMAND_ISSUE;
                         else
                             delay_count <= delay_count + 1;
@@ -369,7 +563,7 @@ begin
                                     sticky_error  <= '1';
                                     reset_count   <= 0;
                                     reset_reads   <= 0;
-                                    command_index <= INIT_COMMANDS'low;
+                                    command_index <= 0;
                                     state         <= RESET_HOLD;
                                 else
                                     reset_reads <= reset_reads + 1;

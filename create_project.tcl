@@ -64,6 +64,7 @@ add_files -norecurse [list \
     [file join $source_dir debug_status_pkg.vhd] \
     [file join $source_dir mdio_master.vhd] \
     [file join $source_dir reset_synchronizer.vhd] \
+    [file join $source_dir phy_profile_buttons.vhd] \
     [file join $source_dir gray_counter_cdc.vhd] \
     [file join $source_dir status_snapshot_cdc.vhd] \
     [file join $source_dir uart_tx.vhd] \
@@ -81,6 +82,7 @@ set simulation_files [list \
     [file join $source_dir tb_udp_to_gmii.vhd] \
     [file join $source_dir tb_udp_to_gmii_no_padding.vhd] \
     [file join $source_dir tb_ethernet_statistics.vhd] \
+    [file join $source_dir tb_phy_profile_buttons.vhd] \
     [file join $source_dir tb_dp83867_sgmii_init.vhd] \
     [file join $source_dir tb_mdio_master.vhd] \
     [file join $source_dir tb_uart_status.vhd]]

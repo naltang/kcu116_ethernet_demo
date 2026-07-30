@@ -102,7 +102,7 @@ a KCU116 and VCU118 running this design to the same network at the same time.
 1. Build the target selected above.
 2. Connect that board's RJ45 port to a host or a 1-Gb/s-capable switch.
 3. Program the matching bitstream. A KCU116 bitstream cannot be used on a
-   VCU118, or vice versa.
+   VCU118, or vice versa. The Center PHY profile is selected automatically.
 4. Assign the receiving host an address in `1.2.3.0/24`, such as `1.2.3.4`,
    with subnet mask `255.255.255.0`. No gateway is required.
 5. Start the UDP receiver:
@@ -258,6 +258,47 @@ IPv4 and UDP lengths, IPv4 and UDP checksums, minimum Ethernet padding, and the
 transmitted Ethernet FCS are generated automatically. Received Ethernet FCS
 values are checked by the statistics monitor.
 
+## PHY configuration profiles
+
+The five active-high directional pushbuttons select complete DP83867
+initialization profiles. They are separate from the CPU reset pushbutton and
+have the same logical names on both supported boards. At FPGA startup, the
+Center profile is selected automatically.
+
+| Button and UART prefix | Profile | PHY-specific change |
+|---|---|---|
+| Center (`C`) | Baseline | Existing six-wire SGMII, copper auto-negotiation, speed-optimization, and board-strap settings |
+| North (`N`) | Inter-channel margin | Extended register `0x0102=0x7477` to increase AGC convergence time and `0x00E4=0x0080` to disable AGC retraining |
+| East (`E`) | Normal MDI amplitude | Extended register `0x01D5=0xF508`, the TI unstable-1-Gb/s setting that changes the PHY from low-power to normal operational mode |
+| South (`S`) | Short-cable DSP margin | Complete TI short-cable convergence and timing-bandwidth sequence |
+| West (`W`) | No-downshift diagnostic | Baseline with `CFG2.SPEED_OPT_EN` cleared (`CFG2=0x29C0`) so failed 1-Gb/s establishment does not invoke speed optimization |
+
+The South profile writes the following extended-register values:
+
+```text
+0053=2054 00EF=3840 0102=7477 0103=7777 0104=4577
+010C=7777 01C2=7FDE 0115=5555 0118=0771 011D=6DB2
+011E=3FFB 01C3=FFC6 01C4=0FC2 01C5=0FF0 012C=0E81
+```
+
+Press and release exactly one directional button after LED 0 is on. The
+buttons are synchronized and debounced; a held button produces only one
+request, and simultaneous presses are ignored. Selecting any profile,
+including the one already active, performs a complete PHY reset before writing
+the profile and common SGMII settings. LED 0 turns off, the Ethernet link drops
+temporarily, and UART reporting pauses until initialization finishes.
+
+The frame counters and sticky receive-error indication are cleared by a profile
+change so measurements for the new configuration start from zero. Save the
+preceding UART line before pressing a button. CPU reset restores the Center
+profile.
+
+North and South are TI troubleshooting configurations, not general cable
+repairs. East is intended for the condition described by TI's unstable
+1-Gb/s procedure and can increase PHY power consumption. West is diagnostic:
+with a marginal four-pair path it can remain down instead of falling back to a
+lower speed. Press Center to restore the normal configuration.
+
 ## LED status
 
 | LED | Meaning |
@@ -281,24 +322,26 @@ The FPGA continuously transmits a textual status line through the selected
 board's USB-UART bridge at 9600 baud, 8 data bits, no parity, and one stop bit:
 
 ```text
-FRAME(S=0xXXXX R=0xXXXX F=0xXXXX E=0xXXXX) PCS=0xXXXX PHYSTS=0xXXXX BMCR=0xXXXX BMSR=0xXXXX STS1=0xXXXX RECR=0xXXXX ISR=0xXXXX MSE(A=0xXXXX B=0xXXXX C=0xXXXX D=0xXXXX) ANAR=0xXXXX ANLPAR=0xXXXX ANER=0xXXXX PHYCR=0xXXXX CFG1=0xXXXX CFG4=0xXXXX STRAP2=0xXXXX ANA_LD=0xXXXX
+C FRAME(S=0xXXXX R=0xXXXX F=0xXXXX E=0xXXXX) PCS=0xXXXX PHYSTS=0xXXXX BMCR=0xXXXX BMSR=0xXXXX STS1=0xXXXX RECR=0xXXXX ISR=0xXXXX MSE(A=0xXXXX B=0xXXXX C=0xXXXX D=0xXXXX) ANAR=0xXXXX ANLPAR=0xXXXX ANER=0xXXXX PHYCR=0xXXXX CFG1=0xXXXX CFG4=0xXXXX STRAP2=0xXXXX ANA_LD=0xXXXX
 ```
 
 An illustrative report after successful 1-Gb/s auto-negotiation is:
 
 ```text
-FRAME(S=0x000C R=0x0003 F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xAC02 BMCR=0x1140 BMSR=0x796D STS1=0x7800 RECR=0x0000 ISR=0x0000 MSE(A=0x0123 B=0x0145 C=0x0167 D=0x0189) ANAR=0x01E1 ANLPAR=0xC1E1 ANER=0x006D PHYCR=0x5848 CFG1=0x0300 CFG4=0x1030 STRAP2=0x0150 ANA_LD=0x0200
+C FRAME(S=0x000C R=0x0003 F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xAC02 BMCR=0x1140 BMSR=0x796D STS1=0x7800 RECR=0x0000 ISR=0x0000 MSE(A=0x0123 B=0x0145 C=0x0167 D=0x0189) ANAR=0x01E1 ANLPAR=0xC1E1 ANER=0x006D PHYCR=0x5848 CFG1=0x0300 CFG4=0x1030 STRAP2=0x0150 ANA_LD=0x0200
 ```
 
-The fields remain on one physical line. `FRAME(...)` groups the Ethernet
-statistics and `MSE(...)` groups the four copper-channel measurements. All
-other fields are printed without an enclosing group.
+The first character is always `C`, `N`, `E`, `S`, or `W` and identifies the
+PHY profile that completed initialization. The fields remain on one physical
+line. `FRAME(...)` groups the Ethernet statistics and `MSE(...)` groups the
+four copper-channel measurements. All other fields are printed without an
+enclosing group.
 
 ### Frame counters
 
 The `FRAME` group contains four 16-bit unsigned counters. They are printed as
-fixed-width hexadecimal values, cleared by `cpu_reset`, and wrap from `0xFFFF`
-to `0x0000`.
+fixed-width hexadecimal values, cleared by `cpu_reset` or a PHY profile change,
+and wrap from `0xFFFF` to `0x0000`.
 
 | Field | Meaning |
 |---|---|
@@ -503,12 +546,12 @@ preceding capture, although it followed the same overall pattern. Its most
 informative lines can be shortened as follows:
 
 ```text
-1-Gb/s attempt: FRAME(R=0x0000 F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xA802 BMSR=0x7969 STS1=0x2800 ISR=0x1800
-False carrier:  FRAME(R=0x0000 F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xA802 BMSR=0x7969 STS1=0x2800 ISR=0x0100
-Idle errors:    FRAME(R=0x0000 F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xA802 BMSR=0x7969 STS1=0x08FF RECR=0x0000 ISR=0x0104 MSE(A=0x003F B=0x0033 C=0x003F D=0x0013)
-Attempt fails: FRAME(R=0x0000 F=0x0000 E=0x0000) PCS=0x220B PHYSTS=0x0002 BMSR=0x7949
-100-Mb/s link: FRAME(R=0x0000 F=0x0000 E=0x0000) PCS=0x348B PHYSTS=0x6C02 BMSR=0x796D ISR=0x1C00
-Valid receive: FRAME(R=0x0005 F=0x0000 E=0x0000) PCS=0x348B PHYSTS=0x6C02 BMSR=0x796D RECR=0x0000 ISR=0x0000
+1-Gb/s attempt: C FRAME(R=0x0000 F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xA802 BMSR=0x7969 STS1=0x2800 ISR=0x1800
+False carrier:  C FRAME(R=0x0000 F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xA802 BMSR=0x7969 STS1=0x2800 ISR=0x0100
+Idle errors:    C FRAME(R=0x0000 F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xA802 BMSR=0x7969 STS1=0x08FF RECR=0x0000 ISR=0x0104 MSE(A=0x003F B=0x0033 C=0x003F D=0x0013)
+Attempt fails: C FRAME(R=0x0000 F=0x0000 E=0x0000) PCS=0x220B PHYSTS=0x0002 BMSR=0x7949
+100-Mb/s link: C FRAME(R=0x0000 F=0x0000 E=0x0000) PCS=0x348B PHYSTS=0x6C02 BMSR=0x796D ISR=0x1C00
+Valid receive: C FRAME(R=0x0005 F=0x0000 E=0x0000) PCS=0x348B PHYSTS=0x6C02 BMSR=0x796D RECR=0x0000 ISR=0x0000
 ```
 
 `STS1=0x08FF` reports `0xFF` (255) in the 8-bit 1000BASE-T idle-error
@@ -554,8 +597,8 @@ Worst attempt:  R=0x0301 PCS=0x3A0B PHYSTS=0xA302 BMSR=0x7949 ISR=0x0080 MSE(A=0
 Receive resumes:   R=0x0308 -> R=0x034C, F=0x0000 E=0x0000 RECR=0x0000
 ```
 
-At 9600 baud, each 272-byte UART report and its inter-line pause take about
-0.284 seconds. During the initial stable interval, `R` increased by 84 over
+At 9600 baud, each 274-byte UART report and its inter-line pause take about
+0.286 seconds. During the initial stable interval, `R` increased by 84 over
 about 8.2 seconds, closely matching the expected 10-datagram/s rate after
 allowing for unrelated background frames. `R` then remained fixed at
 `0x0301` for roughly 12 seconds while the link was down or repeatedly trying
@@ -602,13 +645,13 @@ the UART report was being recorded. Unlike the preceding captures, this test
 began with an operating 1-Gb/s link and then showed rapid link flapping:
 
 ```text
-Initially linked: FRAME(R=0x3B23 F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xAF02 BMSR=0x796D STS1=0x3800 RECR=0x0000 ISR=0x0000
-Movement event:   FRAME(R=0x3B25 F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xAB02 BMSR=0x7969 STS1=0x2800 RECR=0x0000 ISR=0x0504
-Linked again:     FRAME(R=0x3B29 F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xAF02 BMSR=0x796D STS1=0x3800 RECR=0x0000 ISR=0x0400
-Idle errors:      FRAME(R=0x3B38 F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xAB02 BMSR=0x7969 STS1=0x08FF RECR=0x0000 ISR=0x0100
-Fully down:       FRAME(R=0x3B38 F=0x0000 E=0x0000) PCS=0x220B PHYSTS=0x0002 BMSR=0x7949 STS1=0x0000 RECR=0x0000 ISR=0x0040
-1-Gb/s returns:   FRAME(R=0x3B3C F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xAC02 BMSR=0x796D STS1=0x3800 RECR=0x0000 ISR=0x0504
-Later traffic:    FRAME(R=0x3B93 F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xAC02 BMSR=0x796D STS1=0x3800 RECR=0x0000 ISR=0x0400
+Initially linked: C FRAME(R=0x3B23 F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xAF02 BMSR=0x796D STS1=0x3800 RECR=0x0000 ISR=0x0000
+Movement event:   C FRAME(R=0x3B25 F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xAB02 BMSR=0x7969 STS1=0x2800 RECR=0x0000 ISR=0x0504
+Linked again:     C FRAME(R=0x3B29 F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xAF02 BMSR=0x796D STS1=0x3800 RECR=0x0000 ISR=0x0400
+Idle errors:      C FRAME(R=0x3B38 F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xAB02 BMSR=0x7969 STS1=0x08FF RECR=0x0000 ISR=0x0100
+Fully down:       C FRAME(R=0x3B38 F=0x0000 E=0x0000) PCS=0x220B PHYSTS=0x0002 BMSR=0x7949 STS1=0x0000 RECR=0x0000 ISR=0x0040
+1-Gb/s returns:   C FRAME(R=0x3B3C F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xAC02 BMSR=0x796D STS1=0x3800 RECR=0x0000 ISR=0x0504
+Later traffic:    C FRAME(R=0x3B93 F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xAC02 BMSR=0x796D STS1=0x3800 RECR=0x0000 ISR=0x0400
 ```
 
 The direct correlation between mechanical movement and link-state changes is
@@ -667,7 +710,8 @@ PHY, or host configuration does not hide the original fault.
 | `tb_udp_to_gmii` | Two complete GMII frames, IPv4/UDP checksums, padding, Ethernet FCS, payload latching, and 100-Mb/s-style client clock enable | `Two deterministic UDP-to-GMII frames verified` |
 | `tb_udp_to_gmii_no_padding` | Continuous 1-Gb/s-style enable, an exactly minimum-size unpadded frame, and reset during transmission | `Continuous-enable, no-padding, and reset behavior verified` |
 | `tb_ethernet_statistics` | Sent, FCS-good, FCS-bad, and errored receive frames; clock-enable handling; carrier-extension filtering; inactive clients; and rollover behavior | `Ethernet statistics and receive FCS checking verified` |
-| `tb_dp83867_sgmii_init` | DP83867 MDIO configuration, link polling, and diagnostic-register polling | `DP83867 diagnostic-register polling verified` |
+| `tb_phy_profile_buttons` | Pushbutton synchronization, debounce, profile selection, repeated selection, disabled input, and simultaneous-press rejection | `PHY profile pushbutton synchronization and debounce verified` |
+| `tb_dp83867_sgmii_init` | All five DP83867 profiles, reset isolation between profiles, link polling, and diagnostic-register polling | `DP83867 profile reinitialization verified` |
 | `tb_mdio_master` | Clause-22 read/write transactions and response backpressure | `MDIO master read, write, and backpressure verified` |
 | `tb_uart_status` | UART bit timing, the complete fixed status format, and coherent line snapshots | `UART byte timing, fixed line format, and snapshot verified` |
 
@@ -695,6 +739,7 @@ foreach simulation_top {
     tb_udp_to_gmii
     tb_udp_to_gmii_no_padding
     tb_ethernet_statistics
+    tb_phy_profile_buttons
     tb_dp83867_sgmii_init
     tb_mdio_master
     tb_uart_status
@@ -709,7 +754,12 @@ foreach simulation_top {
 The DP83867 test additionally reports:
 
 ```text
-DP83867 configuration sequence verified
+DP83867 Center profile verified
+DP83867 North profile verified
+DP83867 East profile verified
+DP83867 South profile verified
+DP83867 West profile verified
+DP83867 profile reinitialization verified
 DP83867 double-read link polling verified
 DP83867 PHYSTS register polling verified
 DP83867 PHYCR register polling verified
@@ -728,6 +778,11 @@ DP83867 diagnostic-register polling verified
   SGMII and Auto-MDIX.
 - Initialization writes `CFG1=0x0300` to select automatic 1000BASE-T
   leader/follower resolution before restarting auto-negotiation.
+- A profile request resets the PHY before applying profile-specific writes and
+  then the shared SGMII sequence, preventing hidden registers from retaining
+  the preceding profile.
+- Directional pushbuttons are synchronized into the 125-MHz board-clock domain,
+  debounced for 10 ms, and ignored while PHY initialization is active.
 - The PCS is held in reset until the MDIO sequence enables six-wire SGMII.
 - Client logic is clocked by `clk125_out` from the PCS, not the unrelated board
   oscillator.
@@ -744,7 +799,7 @@ DP83867 diagnostic-register polling verified
 - The multi-bit PCS status uses a request/acknowledge snapshot handshake so one
   UART line cannot contain a mixture of two PCS status updates.
 - The UART formatter snapshots all fields once per line and streams individual
-  bytes to the transmitter instead of latching a 272-byte vector.
+  bytes to the transmitter instead of latching a 274-byte vector.
 - The UDP transmitter stores one accepted payload snapshot and addresses it by
   byte or word index for checksum and serialization.
 - The generated PCS/PMA core is isolated behind `pcs_pma_wrapper`, keeping its
@@ -769,5 +824,5 @@ DP83867 diagnostic-register polling verified
 - TI DP83867 datasheet:
   <https://www.ti.com/lit/ds/symlink/dp83867cr.pdf>
 - TI SNLA246, *DP83867 Troubleshooting Guide*:
-  <https://www.ti.com/lit/an/snla246/snla246.pdf>
+  <https://www.ti.com/lit/an/snla246d/snla246d.pdf>
 - AMD Answer Record 69494, KCU116/VCU118 DP83867 SGMII bring-up

@@ -22,6 +22,11 @@ entity ethernet_demo is
         clk_125_p : in  std_logic;
         clk_125_n : in  std_logic;
         cpu_reset : in  std_logic;
+        button_c  : in  std_logic;
+        button_n  : in  std_logic;
+        button_e  : in  std_logic;
+        button_s  : in  std_logic;
+        button_w  : in  std_logic;
 
         uart_tx : out std_logic;
 
@@ -57,6 +62,9 @@ architecture rtl of ethernet_demo is
     signal board_reset  : std_logic;
 
     signal phy_config_done : std_logic;
+    signal requested_phy_profile : phy_profile_t := PHY_PROFILE_CENTER;
+    signal active_phy_profile    : phy_profile_t := PHY_PROFILE_CENTER;
+    signal apply_phy_profile     : std_logic;
     signal phy_link_up     : std_logic;
     signal phy_diagnostics : phy_diagnostics_t := PHY_DIAGNOSTICS_RESET;
     signal phy_init_error  : std_logic;
@@ -71,6 +79,7 @@ architecture rtl of ethernet_demo is
     signal client_async_rst : std_logic;
     signal client_reset     : std_logic;
     signal statistics_reset : std_logic;
+    signal statistics_async_rst : std_logic;
     signal speed_is_10_100  : std_logic;
     signal speed_is_100     : std_logic;
 
@@ -123,6 +132,23 @@ begin
             sync_rst  => board_reset
         );
 
+    profile_buttons_i : entity work.phy_profile_buttons
+        generic map (
+            DEBOUNCE_CYCLES => CLOCK_FREQ_HZ / 100
+        )
+        port map (
+            clk      => board_clk125,
+            rst      => board_reset,
+            enable   => phy_config_done,
+            button_c => button_c,
+            button_n => button_n,
+            button_e => button_e,
+            button_s => button_s,
+            button_w => button_w,
+            profile  => requested_phy_profile,
+            apply    => apply_phy_profile
+        );
+
     phy_init_i : entity work.dp83867_sgmii_init
         generic map (
             CLK_FREQ_HZ => CLOCK_FREQ_HZ,
@@ -132,11 +158,14 @@ begin
         port map (
             clk         => board_clk125,
             rst         => board_reset,
+            profile_select => requested_phy_profile,
+            reinitialize => apply_phy_profile,
             clear_isr   => uart_snapshot,
             phy_rst_n   => phy1_reset_b,
             mdc         => phy1_mdc,
             mdio        => phy1_mdio,
             config_done => phy_config_done,
+            active_profile => active_phy_profile,
             link_up     => phy_link_up,
             diagnostics => phy_diagnostics,
             error       => phy_init_error
@@ -147,6 +176,7 @@ begin
     client_async_rst <= cpu_reset or pcs_rst125 or not pcs_link_up;
     speed_is_10_100  <= not pcs_status(11);
     speed_is_100     <= pcs_status(10);
+    statistics_async_rst <= cpu_reset or not phy_config_done;
 
     client_reset_i : entity work.reset_synchronizer
         port map (
@@ -158,7 +188,7 @@ begin
     statistics_reset_i : entity work.reset_synchronizer
         port map (
             clk       => pcs_clk125,
-            async_rst => cpu_reset,
+            async_rst => statistics_async_rst,
             sync_rst  => statistics_reset
         );
 
@@ -268,6 +298,7 @@ begin
             dest_data   => pcs_status_uart
         );
 
+    debug_status.profile_code <= phy_profile_code(active_phy_profile);
     debug_status.frame_sent_count <=
         std_logic_vector(frame_sent_count_uart);
     debug_status.recv_count       <= std_logic_vector(recv_count_uart);
@@ -287,6 +318,7 @@ begin
         port map (
             clk        => board_clk125,
             rst        => board_reset,
+            report_enable => phy_config_done,
             status     => debug_status,
             snapshot_taken => uart_snapshot,
             data_out   => uart_data,

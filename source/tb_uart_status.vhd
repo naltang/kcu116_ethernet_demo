@@ -2,6 +2,7 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 use std.env.all;
+use work.dp83867_pkg.all;
 use work.debug_status_pkg.all;
 
 entity tb_uart_status is
@@ -12,7 +13,7 @@ architecture sim of tb_uart_status is
     constant BAUD_RATE     : positive := 1_000_000;
     constant BIT_PERIOD    : time := 1 sec / BAUD_RATE;
     constant EXPECTED_LINE : string :=
-        "FRAME(S=0x0001 R=0x0002 F=0x0003 E=0x0004) PCS=0x0005" &
+        "N FRAME(S=0x0001 R=0x0002 F=0x0003 E=0x0004) PCS=0x0005" &
         " PHYSTS=0x0006 BMCR=0x0007 BMSR=0x0008 STS1=0x0009" &
         " RECR=0x000A ISR=0x000B" &
         " MSE(A=0x000C B=0x000D C=0x000E D=0x000F)" &
@@ -22,6 +23,7 @@ architecture sim of tb_uart_status is
 
     signal clk        : std_logic := '0';
     signal rst        : std_logic := '1';
+    signal report_enable : std_logic := '0';
     signal status     : debug_status_t := DEBUG_STATUS_RESET;
     signal data_out   : std_logic_vector(7 downto 0);
     signal data_valid : std_logic;
@@ -40,6 +42,7 @@ begin
         port map (
             clk        => clk,
             rst        => rst,
+            report_enable => report_enable,
             status     => status,
             snapshot_taken => snapshot_taken,
             data_out   => data_out,
@@ -63,6 +66,7 @@ begin
 
     reset_and_status : process
     begin
+        status.profile_code           <= phy_profile_code(PHY_PROFILE_NORTH);
         status.frame_sent_count       <= x"0001";
         status.recv_count             <= x"0002";
         status.recv_fcs_error_count   <= x"0003";
@@ -89,6 +93,11 @@ begin
         wait until rising_edge(clk);
         wait until rising_edge(clk);
         rst <= '0';
+        wait for 3 * BIT_PERIOD;
+        assert snapshot_taken = '0' and tx = '1'
+            report "UART report was started while reporting was disabled"
+            severity failure;
+        report_enable <= '1';
         -- Change live inputs during transmission; the current line must retain
         -- the snapshot captured before its first byte.
         wait until falling_edge(tx);

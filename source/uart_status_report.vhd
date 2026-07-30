@@ -14,6 +14,7 @@ entity uart_status_report is
     port (
         clk        : in  std_logic;
         rst        : in  std_logic;
+        report_enable : in std_logic;
         status     : in  debug_status_t;
         snapshot_taken : out std_logic;
         data_out   : out std_logic_vector(7 downto 0);
@@ -56,7 +57,7 @@ architecture rtl of uart_status_report is
     function segment_text(segment_value : natural) return text_segment_t is
     begin
         case segment_value is
-            when 0  => return padded_text("FRAME(S=0x");
+            when 0  => return padded_text("  FRAME(S=0x");
             when 2  => return padded_text(" R=0x");
             when 4  => return padded_text(" F=0x");
             when 6  => return padded_text(" E=0x");
@@ -149,6 +150,10 @@ architecture rtl of uart_status_report is
         variable word_value : std_logic_vector(15 downto 0);
         variable text_value : text_segment_t;
     begin
+        if segment_value = 0 and character_value = 0 then
+            return character'val(to_integer(unsigned(
+                status_value.profile_code)));
+        end if;
         if segment_is_word(segment_value) then
             word_value := status_word(status_value, segment_value / 2);
             return hex_character(word_value(
@@ -165,7 +170,7 @@ architecture rtl of uart_status_report is
             return 4;
         end if;
         case segment_value is
-            when 0             => return 10;
+            when 0             => return 12;
             when 2 | 4 | 6     => return 5;
             when 8             => return 8;
             when 10            => return 10;
@@ -201,7 +206,9 @@ begin
                 snapshot_taken_i <= '0';
                 case state is
                     when PAUSE =>
-                        if pause_count = PAUSE_CYCLES - 1 then
+                        if report_enable = '0' then
+                            pause_count <= 0;
+                        elsif pause_count = PAUSE_CYCLES - 1 then
                             pause_count     <= 0;
                             segment_index   <= 0;
                             character_index <= 0;

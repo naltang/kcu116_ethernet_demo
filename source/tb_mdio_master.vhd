@@ -58,7 +58,9 @@ begin
             clk   => clk,
             rst_n => not rst,
             mdc   => mdc,
-            mdio  => mdio
+            mdio  => mdio,
+            debug_extended_address => (others => '0'),
+            debug_extended_data    => open
         );
 
     stimulus : process

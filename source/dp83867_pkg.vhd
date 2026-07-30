@@ -5,6 +5,18 @@ package dp83867_pkg is
     subtype mdio_register_address_t is std_logic_vector(4 downto 0);
     subtype mdio_word_t is std_logic_vector(15 downto 0);
 
+    type phy_profile_t is (
+        PHY_PROFILE_CENTER,
+        PHY_PROFILE_NORTH,
+        PHY_PROFILE_EAST,
+        PHY_PROFILE_SOUTH,
+        PHY_PROFILE_WEST
+    );
+
+    function phy_profile_code(
+        profile : phy_profile_t
+    ) return std_logic_vector;
+
     constant MDIO_OP_WRITE : std_logic_vector(1 downto 0) := "01";
     constant MDIO_OP_READ  : std_logic_vector(1 downto 0) := "10";
 
@@ -26,9 +38,26 @@ package dp83867_pkg is
     constant DP83867_EXT_CFG2             : mdio_word_t := x"0014";
     constant DP83867_EXT_CFG4             : mdio_word_t := x"0031";
     constant DP83867_EXT_RGMIICTL         : mdio_word_t := x"0032";
+    constant DP83867_EXT_VITERBI_IDLE_CTRL : mdio_word_t := x"0053";
     constant DP83867_EXT_STRAP_STS2       : mdio_word_t := x"006F";
     constant DP83867_EXT_SGMIICTL1        : mdio_word_t := x"00D3";
     constant DP83867_EXT_ANA_LD_DATA_CTRL : mdio_word_t := x"00DD";
+    constant DP83867_EXT_AGC_RETRAIN      : mdio_word_t := x"00E4";
+    constant DP83867_EXT_CAGC_DC_COMP     : mdio_word_t := x"00EF";
+    constant DP83867_EXT_TRAINING_0102    : mdio_word_t := x"0102";
+    constant DP83867_EXT_TRAINING_0103    : mdio_word_t := x"0103";
+    constant DP83867_EXT_TRAINING_0104    : mdio_word_t := x"0104";
+    constant DP83867_EXT_TIMING_010C      : mdio_word_t := x"010C";
+    constant DP83867_EXT_TRAINING_0115    : mdio_word_t := x"0115";
+    constant DP83867_EXT_TRAINING_0118    : mdio_word_t := x"0118";
+    constant DP83867_EXT_TIMING_011D      : mdio_word_t := x"011D";
+    constant DP83867_EXT_TIMING_011E      : mdio_word_t := x"011E";
+    constant DP83867_EXT_FFE_CFG          : mdio_word_t := x"012C";
+    constant DP83867_EXT_TIMING_01C2      : mdio_word_t := x"01C2";
+    constant DP83867_EXT_TIMING_01C3      : mdio_word_t := x"01C3";
+    constant DP83867_EXT_TIMING_01C4      : mdio_word_t := x"01C4";
+    constant DP83867_EXT_TIMING_01C5      : mdio_word_t := x"01C5";
+    constant DP83867_EXT_MDI_AMPLITUDE    : mdio_word_t := x"01D5";
     constant DP83867_EXT_MSE_A            : mdio_word_t := x"0225";
     constant DP83867_EXT_MSE_B            : mdio_word_t := x"0265";
     constant DP83867_EXT_MSE_C            : mdio_word_t := x"02A5";
@@ -76,3 +105,18 @@ package dp83867_pkg is
         ana_ld_data_ctrl => (others => '0')
     );
 end package dp83867_pkg;
+
+package body dp83867_pkg is
+    function phy_profile_code(
+        profile : phy_profile_t
+    ) return std_logic_vector is
+    begin
+        case profile is
+            when PHY_PROFILE_CENTER => return x"43"; -- C
+            when PHY_PROFILE_NORTH  => return x"4E"; -- N
+            when PHY_PROFILE_EAST   => return x"45"; -- E
+            when PHY_PROFILE_SOUTH  => return x"53"; -- S
+            when PHY_PROFILE_WEST   => return x"57"; -- W
+        end case;
+    end function phy_profile_code;
+end package body dp83867_pkg;
