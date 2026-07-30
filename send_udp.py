@@ -5,9 +5,11 @@ import argparse
 import collections
 import datetime
 import ipaddress
+import math
 import socket
 import struct
 import sys
+import time
 
 
 DEFAULT_DESTINATION_ADDRESS = "127.0.0.1"
@@ -50,12 +52,24 @@ def parse_args():
         metavar="COUNT",
         help="number of UDP datagrams to send (default: 1)",
     )
+    parser.add_argument(
+        "--interval",
+        default=0.0,
+        type=float,
+        metavar="SECONDS",
+        help=(
+            "delay in seconds between UDP datagrams "
+            "(default: 0, send as a burst)"
+        ),
+    )
     args = parser.parse_args()
 
     if not 1 <= args.port <= 65535:
         parser.error("--port must be between 1 and 65535")
     if args.count < 1:
         parser.error("--count must be at least 1")
+    if not math.isfinite(args.interval) or args.interval < 0:
+        parser.error("--interval must be a finite, non-negative number")
 
     try:
         args.destination = str(ipaddress.IPv4Address(args.destination))
@@ -330,7 +344,7 @@ def main():
         sender.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         sender.bind((source_interface.address, 0))
         total_sent_byte_count = 0
-        for _ in range(args.count):
+        for datagram_index in range(args.count):
             sent_byte_count = sender.sendto(
                 args.payload, (broadcast_address, args.port)
             )
@@ -341,6 +355,8 @@ def main():
                     )
                 )
             total_sent_byte_count += sent_byte_count
+            if args.interval > 0 and datagram_index + 1 < args.count:
+                time.sleep(args.interval)
         source_address, source_port = sender.getsockname()
     except OSError as error:
         print(

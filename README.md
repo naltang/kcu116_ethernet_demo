@@ -179,6 +179,14 @@ because the FPGA counts Ethernet frames without parsing their contents:
 python3 send_udp.py "counter test" --destination 1.2.3.100 --port 1234 --count 100
 ```
 
+Use `--interval SECONDS` to pace the datagrams. The value accepts fractional
+seconds; for example, this sends ten datagrams with 50 ms between consecutive
+transmissions:
+
+```sh
+python3 send_udp.py "paced test" --destination 1.2.3.100 --count 10 --interval 0.05
+```
+
 `--destination` is a subnet selector, not the transmitted destination address.
 The script finds the local IPv4 interface whose subnet contains the supplied
 address, binds to that interface, and sends to the subnet's directed-broadcast
@@ -187,9 +195,10 @@ address. The resulting Ethernet destination is `ff:ff:ff:ff:ff:ff`.
 If several interfaces match, the one with the longest subnet prefix is used.
 The script reports an error rather than silently using a default interface
 when no subnet matches. `--count COUNT` defaults to one and sends the requested
-datagrams back-to-back through the same socket without an intentional
-inter-datagram delay. UDP does not guarantee that every sent datagram will be
-delivered.
+number of datagrams through the same socket. `--interval SECONDS` defaults to
+zero, which sends them back-to-back as a burst. A positive, finite value inserts
+that delay between consecutive datagrams; no delay is added after the final
+datagram. UDP does not guarantee that every sent datagram will be delivered.
 
 ### Capture traffic
 
