@@ -459,13 +459,21 @@ The relevant accumulated `ISR` values decode as follows:
 | Value | Events observed since the preceding UART line |
 |---|---|
 | `0x0040` | MDI crossover changed |
+| `0x0080` | Reserved bit 7 was observed; the DP83867 datasheet defines no event for this bit |
 | `0x0100` | False carrier |
 | `0x0104` | False carrier and xGMII error |
+| `0x0400` | Link status changed |
+| `0x0440` | Link status and MDI crossover changed |
+| `0x0500` | Link status changed and false carrier |
+| `0x0504` | Link status changed, false carrier, and xGMII error |
+| `0x0800` | Auto-negotiation completed |
+| `0x0D04` | Auto-negotiation completed, link status changed, false carrier, and xGMII error |
 | `0x1000` | An auto-negotiation page was received |
+| `0x1040` | An auto-negotiation page was received and MDI crossover changed |
 | `0x1800` | A page was received and auto-negotiation completed |
+| `0x1C00` | Page received, auto-negotiation completed, and link status changed |
 | `0x8000` | Auto-negotiation error |
 | `0x8040` | Auto-negotiation error and MDI crossover change |
-| `0x1C00` | Page received, auto-negotiation completed, and link status changed |
 
 During each 1-Gb/s attempt, all four MSE channels were applicable.
 `MSE(D)=0x03CF` and, on a later attempt, `MSE(C)=0x033E` exceeded the poor-link
@@ -527,6 +535,115 @@ as a copper-side receiver error.
 The `S` counter continued to increase while the link was down. `S` confirms
 that the FPGA completed frames on its transmit interface; it does not confirm
 that those frames were delivered through the cable.
+
+#### Paced traffic through the bad cable
+
+Another test ran `send_udp.py` with `--interval 0.1`, limiting the offered
+traffic to approximately ten datagrams per second. The relevant progression
+was:
+
+```text
+Stable 100 Mb/s: R=0x02AD -> R=0x0301, F=0x0000 E=0x0000 RECR=0x0000
+Link drops:      R=0x0301 PCS=0x220B PHYSTS=0x0002 BMSR=0x7949 ISR=0x0440
+1-Gb/s attempt: R=0x0301 PCS=0x3A0B PHYSTS=0xA302 BMSR=0x7949 MSE(A=0x01ED B=0x0D4D C=0x1E03 D=0x0B92)
+Attempt fails:  R=0x0301 PCS=0x220B PHYSTS=0x0002 BMSR=0x7949 ISR=0x8040
+Another attempt: R=0x0301 PCS=0x3A0B PHYSTS=0xA002 BMSR=0x7949 MSE(A=0x013E B=0x0103 C=0x09D8 D=0x188F)
+Attempt fails:  R=0x0301 PCS=0x220B PHYSTS=0x0302 BMSR=0x7949 ISR=0x8040
+Worst attempt:  R=0x0301 PCS=0x3A0B PHYSTS=0xA302 BMSR=0x7949 ISR=0x0080 MSE(A=0x002C B=0x382C C=0x3392 D=0x2732)
+100 Mb/s returns: R=0x0301 PCS=0x348B PHYSTS=0x6C02 BMSR=0x796D ISR=0x1C00
+Receive resumes:   R=0x0308 -> R=0x034C, F=0x0000 E=0x0000 RECR=0x0000
+```
+
+At 9600 baud, each 272-byte UART report and its inter-line pause take about
+0.284 seconds. During the initial stable interval, `R` increased by 84 over
+about 8.2 seconds, closely matching the expected 10-datagram/s rate after
+allowing for unrelated background frames. `R` then remained fixed at
+`0x0301` for roughly 12 seconds while the link was down or repeatedly trying
+1 Gb/s, and resumed only after the 100-Mb/s link returned. Because `F`, `E`,
+and `RECR` stayed zero, the missing test traffic did not arrive as completed
+bad-FCS or receive-error frames; it was lost before reaching the FPGA's GMII
+receive interface. Reproducing the failure at this low rate also rules out
+burst transmission as its cause.
+
+The maximum finite MSE values observed during the failed 1-Gb/s attempts were:
+
+| Channel | Maximum observed MSE |
+|---|---:|
+| A | `0x01F0` |
+| B | `0x382C` |
+| C | `0x3392` |
+| D | `0x2732` |
+
+Channel A remained below the excellent threshold of `0x020A`, while channels
+C and D were repeatedly far above the poor threshold of `0x033B`; channel B
+was also extremely poor during two attempts. These are training samples rather
+than measurements from a stable linked state, so their exact quality classes
+are not a link signoff. Their repeated, pair-specific pattern nevertheless
+strongly points to intermittent or defective copper-pair or connector paths
+needed for 1000BASE-T. That diagnosis is consistent with the same cable
+operating at 100 Mb/s but failing when all four pairs are required.
+
+The two reports containing `ISR=0x0080` coincide with the worst 1-Gb/s
+attempt. Bit 7 of DP83867 register `0x0013` is documented as reserved, so the
+value must not be given a defined event meaning. If it matters during further
+debugging, compare raw MDIO reads with a known-good cable and the exact PHY
+silicon revision.
+
+After recovery, some `R` increments were greater than the approximately two
+or three paced datagrams expected per UART line. `R` counts every received
+Ethernet frame, so background traffic or frames released after link recovery
+can account for the difference. Use a simultaneous host packet capture, and
+prefer sequence-numbered payloads, when an exact delivery ratio is required.
+
+#### Cable-movement test at 1 Gb/s
+
+In another test, the known-bad cable was intentionally moved and shaken while
+the UART report was being recorded. Unlike the preceding captures, this test
+began with an operating 1-Gb/s link and then showed rapid link flapping:
+
+```text
+Initially linked: FRAME(R=0x3B23 F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xAF02 BMSR=0x796D STS1=0x3800 RECR=0x0000 ISR=0x0000
+Movement event:   FRAME(R=0x3B25 F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xAB02 BMSR=0x7969 STS1=0x2800 RECR=0x0000 ISR=0x0504
+Linked again:     FRAME(R=0x3B29 F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xAF02 BMSR=0x796D STS1=0x3800 RECR=0x0000 ISR=0x0400
+Idle errors:      FRAME(R=0x3B38 F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xAB02 BMSR=0x7969 STS1=0x08FF RECR=0x0000 ISR=0x0100
+Fully down:       FRAME(R=0x3B38 F=0x0000 E=0x0000) PCS=0x220B PHYSTS=0x0002 BMSR=0x7949 STS1=0x0000 RECR=0x0000 ISR=0x0040
+1-Gb/s returns:   FRAME(R=0x3B3C F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xAC02 BMSR=0x796D STS1=0x3800 RECR=0x0000 ISR=0x0504
+Later traffic:    FRAME(R=0x3B93 F=0x0000 E=0x0000) PCS=0x388B PHYSTS=0xAC02 BMSR=0x796D STS1=0x3800 RECR=0x0000 ISR=0x0400
+```
+
+The direct correlation between mechanical movement and link-state changes is
+strong evidence of an intermittent physical connection. It does not, by
+itself, identify whether the defect is inside the cable, at either RJ45 plug,
+between a plug and jack, in a jack, or in another mechanically disturbed
+copper-path connection. Repeat the movement separately near each plug and
+along the cable, then substitute a known-good cable, to narrow the location
+without changing the FPGA design.
+
+This capture also identifies the first receiver-status change. `STS1=0x3800`
+reports both the local and remote 1000BASE-T receivers as OK. During the first
+link loss, `STS1=0x2800` still reports the local receiver as OK but reports the
+remote receiver as not OK. This suggests that the link partner first lost the
+signal transmitted from the board-side PHY. Later `STS1=0x08FF` and
+`STS1=0x48FF` report neither receiver as OK and contain `0xFF` in the
+1000BASE-T idle-error counter.
+
+`ISR=0x0504` occurred repeatedly and records a link-status change, false
+carrier, and xGMII error. `ISR=0x0D04` adds an auto-negotiation-complete event.
+No auto-negotiation-error bit `0x8000` appeared: 1-Gb/s negotiation could
+complete, but mechanical disturbance made the established link unstable.
+
+All four MSE values nevertheless remained in the excellent range. Their
+maximum values were `A=0x010E`, `B=0x019B`, `C=0x01B2`, and `D=0x0199`, all
+below `0x020A`. Periodic MSE samples can therefore miss a brief contact
+interruption; low MSE must not override observed link flapping, receiver-status
+failures, or mechanically repeatable behavior.
+
+Across the capture, `R` increased by 112 while `F`, `E`, and `RECR` remained
+zero. Frames that reached GMII were intact, while traffic sent during complete
+link-down intervals did not reach the FPGA. Brief changes can occur between
+the sequential PHY-register polls and UART snapshots, so an `R` increment on
+a line whose current `BMSR` link bit is clear is not necessarily a counter
+error.
 
 The same UART pattern can occur when the electrical contact between an RJ45
 plug and jack is intermittent, even if the UTP cable itself is undamaged.
