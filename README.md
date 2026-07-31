@@ -455,6 +455,27 @@ Before changing the PCS/PMA configuration, constraints, or host software:
 3. Save several complete UART status lines.
 4. Compare the observed LEDs and fields with the table below.
 
+Restarting the PHY while recording the UART output is a useful way to narrow
+the fault to a network layer. First save the current lines, then press and
+release the button whose letter already appears at the start of the UART line;
+this reapplies the same profile, so the configuration under test does not
+change. The link drop, UART pause, and counter reset are expected. Record the
+complete sequence from down/training through link establishment or speed
+fallback, and repeat it when the behavior is intermittent.
+
+- If `BMSR`, `PHYSTS`, `ISR`, `STS1`, and `MSE` show failed negotiation before
+  `R` can increase, investigate the cable, RJ45 contacts, switch port, and
+  other copper-path components.
+- If the copper link becomes active but `PCS` and LED 2 do not, investigate
+  the SGMII connection and PCS configuration.
+- If both the copper link and PCS are active but the expected traffic is
+  absent from `R`, investigate the host interface, addressing, firewall,
+  switch path, and offered traffic.
+
+This procedure narrows the likely fault domain; the UART values alone cannot
+distinguish, for example, a defective cable from an intermittent plug-to-jack
+contact.
+
 Stable register values help distinguish copper-link, SGMII, and host-network
 problems.
 
@@ -501,7 +522,9 @@ The relevant accumulated `ISR` values decode as follows:
 
 | Value | Events observed since the preceding UART line |
 |---|---|
+| `0x0002` | Polarity changed |
 | `0x0040` | MDI crossover changed |
+| `0x0042` | MDI crossover and polarity changed |
 | `0x0080` | Reserved bit 7 was observed; the DP83867 datasheet defines no event for this bit |
 | `0x0100` | False carrier |
 | `0x0104` | False carrier and xGMII error |
@@ -510,13 +533,19 @@ The relevant accumulated `ISR` values decode as follows:
 | `0x0500` | Link status changed and false carrier |
 | `0x0504` | Link status changed, false carrier, and xGMII error |
 | `0x0800` | Auto-negotiation completed |
+| `0x0C00` | Auto-negotiation completed and link status changed |
 | `0x0D04` | Auto-negotiation completed, link status changed, false carrier, and xGMII error |
 | `0x1000` | An auto-negotiation page was received |
+| `0x1002` | An auto-negotiation page was received and polarity changed |
 | `0x1040` | An auto-negotiation page was received and MDI crossover changed |
+| `0x1042` | An auto-negotiation page was received, and MDI crossover and polarity changed |
 | `0x1800` | A page was received and auto-negotiation completed |
 | `0x1C00` | Page received, auto-negotiation completed, and link status changed |
+| `0x4C00` | Speed changed, auto-negotiation completed, and link status changed |
+| `0x5C00` | Speed changed, a page was received, auto-negotiation completed, and link status changed |
 | `0x8000` | Auto-negotiation error |
 | `0x8040` | Auto-negotiation error and MDI crossover change |
+| `0x8042` | Auto-negotiation error, MDI crossover change, and polarity change |
 
 During each 1-Gb/s attempt, all four MSE channels were applicable.
 `MSE(D)=0x03CF` and, on a later attempt, `MSE(C)=0x033E` exceeded the poor-link
@@ -637,6 +666,69 @@ or three paced datagrams expected per UART line. `R` counts every received
 Ethernet frame, so background traffic or frames released after link recovery
 can account for the difference. Use a simultaneous host packet capture, and
 prefer sequence-numbered payloads, when an exact delivery ratio is required.
+
+#### Repeatable restart and speed-fallback test
+
+A later test held the same bad cable in a condition where 1000BASE-T could not
+establish a stable link. The Center and North buttons were alternated only to
+restart the PHY and mark the restart boundaries in the UART log; this capture
+is not a comparison of those two profiles.
+
+Four complete post-restart sequences produced nearly identical timing:
+
+| Restart marker | First post-restart line | First 100-Mb/s linked line | Visible 1-Gb/s attempts | Approximate time to 100 Mb/s |
+|---|---:|---:|---:|---:|
+| `N` | 79 | 119 | 3 | 11.4 seconds |
+| `C` | 161 | 201 | 3 | 11.4 seconds |
+| `N` | 247 | 287 | 3 | 11.4 seconds |
+| `C` | 319 | 358 | 3 | 11.2 seconds |
+
+The time is estimated from the approximately 0.286-second UART reporting
+period and begins at the first visible line after each restart. Initialization
+occurs before that line and is not included.
+
+During every visible 1-Gb/s attempt, `PCS` progressed through `0x3A0B` or
+`0x388B`, but the copper link never became active: `BMSR` remained `0x7949` or
+`0x7969`, the link-status bit in `PHYSTS` remained clear, and `R` stayed zero.
+The attempts produced auto-negotiation errors such as `ISR=0x8000`,
+`ISR=0x8040`, or `ISR=0x8042`. Some attempts also ended with
+`STS1=0x08FF`, false-carrier or xGMII events, and loss of the local and remote
+1000BASE-T receiver-status indications.
+
+The largest finite MSE values from the four complete restart sequences were:
+
+| Restart marker | MSE A | MSE B | MSE C | MSE D |
+|---|---:|---:|---:|---:|
+| `N` | `0x01A0` | `0x021F` | `0x01E1` | `0x2ABF` |
+| `C` | `0x009C` | `0x0097` | `0x0098` | `0x347D` |
+| `N` | `0x0351` | `0x012D` | `0x1B13` | `0x03DC` |
+| `C` | `0x009A` | `0x0097` | `0x00CC` | `0x1657` |
+
+These measurements were taken during failed training attempts rather than
+from a stable linked state, so their exact quality classes are not link
+signoff results. Their repeated channel asymmetry is nevertheless useful:
+channel D exceeded `0x033B` in every complete sequence, channel C was also
+extremely poor during one sequence, while A and B were usually much lower.
+Together with reliable 100-Mb/s operation after fallback, this strongly points
+to an impaired cable, plug, jack, or other copper path needed when all four
+1000BASE-T channels are active.
+
+After speed fallback, each sequence settled at `PCS=0x348B`,
+`BMSR=0x796D`, and `PHYSTS=0x6C02` or `0x6F02`; `R` then increased while
+`F`, `E`, and `RECR` remained zero. The difference between `PHYSTS=0x6C02`
+and `0x6F02` is the Auto-MDIX resolution for the A/B and C/D pair groups, not
+a difference in the negotiated 100-Mb/s full-duplex link state.
+
+Polarity-change events also appeared as `ISR=0x0002` and in the combined
+values `0x1002`, `0x1042`, and `0x8042`. Polarity and MDI/MDIX resolution can
+change while a restarted PHY is training, so these events are supporting
+observations rather than independent proof of a wiring fault.
+
+The repeatable delay and fallback show that speed optimization is operating
+predictably despite the defective path. The absence of `F`, `E`, and `RECR`
+errors does not clear the cable: the 1-Gb/s failures occur before completed
+Ethernet frames reach the FPGA, and reception is clean after the PHY selects
+100 Mb/s.
 
 #### Cable-movement test at 1 Gb/s
 
